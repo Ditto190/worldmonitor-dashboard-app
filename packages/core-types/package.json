@@ -14,7 +14,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build": "tsup src/index.ts --format cjs,esm --dts --tsconfig tsconfig.build.json && cp src/globe-gl.d.ts dist/globe-gl.d.ts && node scripts/inject-reference.js",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },

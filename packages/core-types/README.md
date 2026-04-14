@@ -4,11 +4,11 @@ Shared TypeScript type definitions for the WorldMonitor ecosystem.
 
 ## Overview
 
-This package is the **foundation leaf package** of the WorldMonitor component ecosystem. It contains all shared TypeScript interfaces, enums, and type definitions used across the platform — including `PanelConfig`, `MapLayers`, `DataSourceId`, `NewsItem`, and 100+ other types.
+This package is the **foundation leaf package** of the WorldMonitor component ecosystem. It contains all shared TypeScript interfaces, enums, type definitions, and minimal runtime constants used across the platform — including `PanelConfig`, `MapLayers`, `DataSourceId`, `NewsItem`, and 100+ other types.
 
 ### Key characteristics
 
-- **Zero runtime dependencies** — pure type definitions only
+- **Minimal runtime footprint** — one exported runtime constant (`NATURAL_EVENT_CATEGORIES`); everything else is pure type definitions
 - **Zero internal imports** — no imports from other `src/` directories
 - **Leaf node** in the dependency graph — all other `@worldmonitor/*` packages depend on this one
 
@@ -50,7 +50,7 @@ The package re-exports all types from the original `src/types/index.ts` of the W
 - `EconomicCenter` / `CriticalMineralProject` — economic geography types
 - And many more — see `src/index.ts` for the full list
 
-The package also ships `src/globe-gl.d.ts`, an ambient module declaration for `globe.gl`.
+The published package also includes an ambient module declaration for `globe.gl` in its distributed type definitions (`dist/globe-gl.d.ts`), referenced automatically via `/// <reference path="./globe-gl.d.ts" />` in the generated `dist/index.d.ts`.
 
 ## Dependency Graph Position
 

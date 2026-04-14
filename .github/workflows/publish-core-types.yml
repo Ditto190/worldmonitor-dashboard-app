@@ -1,4 +1,8 @@
 name: Publish @worldmonitor/core-types
+# This workflow publishes the @worldmonitor/core-types package to GitHub Packages.
+# It triggers on pushes to the 'packages/core-types' branch, which follows the
+# poly-repo extraction strategy: each extracted package lives on a dedicated
+# 'packages/<name>' branch until it graduates to its own repository.
 on:
   push:
     branches: [packages/core-types]
