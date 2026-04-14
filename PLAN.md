@@ -20,7 +20,7 @@ This preserves a single operational repository while allowing package-level owne
 - `@worldmonitor/core-types`
 - `@worldmonitor/core-config`
 - `@worldmonitor/core-utils`
-- `@worldmonitor/panel-framework` (includes Next.js App Router-ready React adapter)
+- `@worldmonitor/panel-framework` (includes an optional Next.js App Router-ready React adapter, additive to the current Preact runtime)
 - `@worldmonitor/data-services`
 
 ### Infrastructure packages
@@ -154,5 +154,5 @@ This plan records and formalizes the previously agreed extraction direction:
 
 - polyrepo approach implemented through package/extension branches
 - GitHub Packages as distribution registry
-- Next.js App Router-compatible React adapter priority in `panel-framework`
+- Next.js App Router-compatible React adapter priority in `panel-framework` as an additive integration layer (not a replacement for the existing Preact app architecture)
 - extraction order beginning with `ext-news`, followed by `ext-finance`
