@@ -337,7 +337,10 @@ describe('GEO residue #7746 (compare discoverability)', () => {
     assert.ok(urls.length >= 13, `sitemap-main.xml should carry the 13-route compare family, got ${urls.length}`);
     const generated = buildLlmsFullText({ rootDir: repoRoot });
     for (const url of urls) {
-      assert.ok(llmsTxt().includes(`](${url})`), `public/llms.txt must link ${url}`);
+      // Exactly once: the splice locates its section by heading, so a renamed
+      // heading would leave a stale copy behind that the fixed-point check
+      // cannot see. Counting the links catches that duplicate.
+      assert.equal(llmsTxt().split(`](${url})`).length, 2, `public/llms.txt must link ${url} exactly once`);
       assert.ok(generated.includes(`](${url})`), `generated llms-full must link ${url}`);
     }
   });
