@@ -58,6 +58,14 @@ import {
   withheldTransitCountSentence,
 } from './crawlable-live-tools.mjs';
 import {
+  briefTextLines,
+  isBriefBullet,
+  isBriefOutlookRow,
+  isBriefSectionHeader,
+  normalizeFrozenDevelopments,
+  stripBriefBullet,
+} from './crawlable-developments.mjs';
+import {
   CHOKEPOINT_CONTENT,
   CHOKEPOINT_PAGE_CONTENT_PATH,
   CHOKEPOINT_SCORE_CONTEXT_ONLY,
@@ -1630,6 +1638,19 @@ export async function loadCorpusData({ rootDir = DEFAULT_ROOT, livePulseSnapshot
     ...country,
     microstateTerritory: microstateTerritoryCodes.has(country.code),
   }));
+  // Publish rules for the frozen developments (#7738, #7748), applied once
+  // here so the page, its dataset download, its WebPage dateModified and the
+  // coverage tripwire all read the same rows: a brief withheld for thin
+  // grounding must not still stamp dateModified or ship in the JSON.
+  for (const country of countries) {
+    const row = livePulse.countries[country.code];
+    if (row && typeof row === 'object' && 'developments' in row) {
+      row.developments = normalizeFrozenDevelopments(row.developments, {
+        countryCode: country.code,
+        countryName: country.name,
+      });
+    }
+  }
   const ciiRanking = buildCiiRankingEntries(countries, livePulse);
   const countryBounds = normalizeCountryBounds(countryBboxes, countries, reverseNames);
   const chokepoints = normalizeChokepoints(CHOKEPOINT_REGISTRY);
@@ -3000,10 +3021,27 @@ ${faqs.map((faq) => `        <details data-country-faq><summary>${escapeHtml(faq
 // numbers moved in the same window the reporting was captured. Asserting that
 // a headline *drove* a score move would be fabrication — only an analyst (or
 // the brief, which cites its sources) may draw that link.
-export function renderCountryDevelopments({ countryName, developments, ciiEntry = null, pulse = null }) {
+export function renderCountryDevelopments({
+  countryCode = '',
+  countryName,
+  developments,
+  ciiEntry = null,
+  pulse = null,
+}) {
   const name = String(countryName || '').trim();
   if (!name) throw new Error('renderCountryDevelopments requires a country name');
-  const rows = developments && typeof developments === 'object' ? developments : null;
+  const rawRows = developments && typeof developments === 'object' ? developments : null;
+  // Validate the frozen shape before the publish rules run: a malformed brief
+  // must red the build, not be quietly withheld as thin grounding.
+  if (rawRows?.brief && typeof rawRows.brief === 'object') assertDevelopmentsBrief(rawRows.brief);
+  // Publish rules (#7738, #7748): markdown emphasis stripped, model preamble
+  // dropped, the ISO-code heading repaired to the country name, and briefs
+  // grounded on fewer than MIN_BRIEF_GROUNDING_SOURCES withheld. loadCorpusData
+  // already applied them to the committed snapshot; this call is idempotent
+  // so direct callers get the same page.
+  const rows = rawRows
+    ? normalizeFrozenDevelopments(rawRows, { countryCode, countryName: name })
+    : null;
   const headlines = Array.isArray(rows?.headlines) ? rows.headlines : [];
   const brief = rows?.brief && typeof rows.brief === 'object' ? rows.brief : null;
   const timeline = Array.isArray(rows?.timeline) ? rows.timeline : [];
@@ -3037,9 +3075,9 @@ export function renderCountryDevelopments({ countryName, developments, ciiEntry 
     parts.push(`        <ul>\n${items}\n        </ul>`);
   }
   if (brief) {
-    const briefHtml = escapeHtml(brief.text).replace(/\n/g, '<br>');
     const generatedLine = `Brief generated <time datetime="${escapeHtml(brief.generatedAt)}">${escapeHtml(formatStaticDateTime(brief.generatedAt))}</time>`;
-    parts.push(`        <div data-intel-brief>\n          <h3>Country brief</h3>\n          <p>${briefHtml}</p>\n          <p class="source">${generatedLine}${brief.model ? ` by ${escapeHtml(brief.model)}` : ''} from ${brief.sources.length} grounding sources.</p>\n        </div>`);
+    const sourceCount = brief.sources.length;
+    parts.push(`        <div data-intel-brief>\n          <h3>Country brief</h3>\n${renderCountryBriefBody(brief.text)}\n          <p class="source">${generatedLine}${brief.model ? ` by ${escapeHtml(brief.model)}` : ''} from ${sourceCount} grounding source${sourceCount === 1 ? '' : 's'}.</p>\n        </div>`);
   }
   if (timeline.length > 0) {
     const events = timeline
@@ -3054,6 +3092,40 @@ export function renderCountryDevelopments({ countryName, developments, ciiEntry 
   }
   const inner = parts.join('\n');
   return `      <section data-country-developments aria-label="Recent developments in ${escapeHtml(name)}">\n        <h2>Recent developments in ${escapeHtml(name)}</h2>\n${inner}\n      </section>`;
+}
+
+// The five-section brief as HTML, mirroring src/utils/format-intel-brief.ts:
+// section headers become <h4>, bullet runs become <ul>, "NEXT 24H:" rows keep
+// their label, everything else is a paragraph. The text arrives normalized
+// (no `**`, no preamble), so this never has to interpret markdown; it only
+// gives a crawler structure instead of a <br>-joined blob (#7738).
+export function renderCountryBriefBody(text) {
+  const out = [];
+  let bullets = [];
+  const flushBullets = () => {
+    if (bullets.length === 0) return;
+    out.push(`          <ul>\n${bullets.map((item) => `            <li>${item}</li>`).join('\n')}\n          </ul>`);
+    bullets = [];
+  };
+  for (const line of briefTextLines(text)) {
+    if (isBriefBullet(line)) {
+      bullets.push(escapeHtml(stripBriefBullet(line)));
+      continue;
+    }
+    flushBullets();
+    if (isBriefSectionHeader(line)) {
+      out.push(`          <h4>${escapeHtml(line)}</h4>`);
+    } else if (isBriefOutlookRow(line)) {
+      // The label is wrapped, the text is left verbatim (spacing included):
+      // assertCountryDevelopmentsRendered anchors on the tag-stripped line.
+      const colon = line.indexOf(':');
+      out.push(`          <p><strong>${escapeHtml(line.slice(0, colon + 1))}</strong>${escapeHtml(line.slice(colon + 1))}</p>`);
+    } else {
+      out.push(`          <p>${escapeHtml(line)}</p>`);
+    }
+  }
+  flushBullets();
+  return out.join('\n');
 }
 
 function isValidHttpsUrl(value) {
@@ -3158,8 +3230,17 @@ export function developmentsHasDatedItem(developments) {
 // country must be present in the page HTML — a silent drop (wrong slug, lost
 // prop, over-eager filter) fails the build instead of shipping a page whose
 // snapshot claims items the crawler cannot see.
-export function assertCountryDevelopmentsRendered({ pagePath, html, developments }) {
-  const rows = developments && typeof developments === 'object' ? developments : null;
+export function assertCountryDevelopmentsRendered({
+  pagePath,
+  html,
+  developments,
+  countryCode = '',
+  countryName = '',
+}) {
+  const rawRows = developments && typeof developments === 'object' ? developments : null;
+  // Same publish rules as the renderer, so a withheld thin brief is not
+  // reported as dropped and a repaired heading is looked for as repaired.
+  const rows = rawRows ? normalizeFrozenDevelopments(rawRows, { countryCode, countryName }) : null;
   if (!rows || !developmentsHasDatedItem(rows)) return;
   if (!html.includes('data-country-developments')) {
     throw new Error(`${pagePath} is missing its recent-developments section`);
@@ -3174,14 +3255,15 @@ export function assertCountryDevelopmentsRendered({ pagePath, html, developments
   if (rows.brief && typeof rows.brief.text === 'string' && rows.brief.text.trim()) {
     // Anchor on the first AND last non-empty lines: every generated brief
     // opens with the same boilerplate header, so the first line alone cannot
-    // catch a cross-country brief swap. The renderer escapes newlines to
-    // <br>, so raw multi-line slices never appear verbatim.
-    const nonEmpty = rows.brief.text.trim().split('\n').map((line) => line.trim()).filter(Boolean);
+    // catch a cross-country brief swap. The renderer wraps lines in <h4>,
+    // <li> and <p>, so anchors are checked against the tag-stripped page.
+    const nonEmpty = briefTextLines(rows.brief.text).map((line) => stripBriefBullet(line));
     const anchors = [nonEmpty[0], nonEmpty.at(-1)]
       .filter((line, index, all) => line && all.indexOf(line) === index)
       .map((line) => escapeHtml(line.slice(0, 120)));
+    const pageText = html.replace(/<[^>]+>/g, '');
     for (const anchor of anchors) {
-      if (!html.includes(anchor)) {
+      if (!pageText.includes(anchor)) {
         throw new Error(`${pagePath} dropped its frozen intel brief`);
       }
     }
@@ -3335,7 +3417,7 @@ ${liveGrid}
         <noscript><p>Enable JavaScript to refresh the current API result. ${hasPulse ? 'The published pulse above remains available without JavaScript.' : 'The structural resilience snapshot remains available below.'}</p></noscript>
       </section>
       <a class="cta" href="${escapeHtml(mapUrl)}">Open ${escapeHtml(country.name)} on the live map →</a>
-${renderCountryDevelopments({ countryName: country.name, developments, ciiEntry, pulse })}
+${renderCountryDevelopments({ countryCode: country.code, countryName: country.name, developments, ciiEntry, pulse })}
       <h2>Structural resilience snapshot</h2>
       <section class="grid" aria-label="Country resilience metrics">
         <div class="metric"><span>Rank</span><strong>${escapeHtml(country.rank == null ? 'Not ranked' : `#${country.rank}`)}</strong></div>
@@ -3474,8 +3556,32 @@ ${analysis.readingGuide ? `      <h2>How to use this evidence</h2>
     body,
     scriptSrcs: ['/tools/live-tools.js'],
   });
-  assertCountryDevelopmentsRendered({ pagePath: path, html, developments });
+  assertCountryDevelopmentsRendered({
+    pagePath: path,
+    html,
+    developments,
+    countryCode: country.code,
+    countryName: country.name,
+  });
+  assertCountryPagePresentation({ pagePath: path, html });
   return html;
+}
+
+// Presentation guard (#7738): the enrichment is generated prose injected as
+// text, and the first round shipped literal `**` markdown on 7 of 11 sampled
+// briefs plus "WHAT THIS MEANS FOR NO" headings. Both are cheap string checks
+// on the rendered <main>, and both would have caught the defect before deploy.
+export function assertCountryPagePresentation({ pagePath, html }) {
+  const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? html;
+  if (main.includes('**')) {
+    throw new Error(`${pagePath} renders literal markdown emphasis (**) inside <main>`);
+  }
+  for (const match of main.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/g)) {
+    const heading = match[1].replace(/<[^>]+>/g, '');
+    if (/\bFOR [A-Z]{2}\b/.test(heading)) {
+      throw new Error(`${pagePath} leaks an ISO code into a heading: ${heading.trim()}`);
+    }
+  }
 }
 
 const CHOKEPOINT_HUB_STATUS_LABELS = new Set(['Green', 'Yellow', 'Red']);
