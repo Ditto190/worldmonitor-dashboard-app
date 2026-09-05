@@ -252,6 +252,11 @@ describe('comparison page narrative depth (#7743)', () => {
         questions.length >= MIN_FAQ_COUNT && questions.length <= MAX_FAQ_COUNT,
         page.slug + ' FAQ count must be 8–12, got ' + questions.length,
       );
+      assert.equal(
+        new Set(questions.map((question) => question.toLowerCase())).size,
+        questions.length,
+        page.slug + ' FAQ questions must be unique',
+      );
       const faqLd = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
         .map(([, raw]) => JSON.parse(raw))
         .find((entry) => entry['@type'] === 'FAQPage');
@@ -264,7 +269,7 @@ describe('comparison page narrative depth (#7743)', () => {
   });
 
   it('keeps the do-not-publish phrases off generated pages', () => {
-    const forbidden = /cyber-only|CC-BY-NC|myACLED free tier|Daily event coding|six figures|\$100K|\$300K/i;
+    const forbidden = /cyber-only|CC-BY-NC|myACLED free tier|Daily event coding|six figures|\$100K|\$300K|Liveuamap[^.]*no public API/i;
     assert.doesNotMatch(hubHtml, forbidden, 'hub');
     for (const [slug, html] of pages) {
       assert.doesNotMatch(html, forbidden, slug);

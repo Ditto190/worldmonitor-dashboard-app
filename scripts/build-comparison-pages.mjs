@@ -419,6 +419,14 @@ function applyComparisonNarrative(page) {
   if (faqs.length < 8 || faqs.length > 12) {
     throw new Error(page.slug + ' FAQ count must be 8-12, got ' + faqs.length);
   }
+  const faqNames = new Set();
+  for (const [question] of faqs) {
+    const key = String(question).trim().toLowerCase();
+    if (faqNames.has(key)) {
+      throw new Error(page.slug + ' duplicate FAQ question: ' + question);
+    }
+    faqNames.add(key);
+  }
   const merged = { ...page, ...narrative, faqs };
   delete merged.extraFaqs;
   const whyBody = (merged.whyWeWinBody ?? []).join(' ').replace(/\s+/g, ' ').trim();

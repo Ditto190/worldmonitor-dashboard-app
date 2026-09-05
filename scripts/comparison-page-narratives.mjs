@@ -31,7 +31,7 @@ export const COMPARE_HUB_NARRATIVE = {
   concessions: {
     heading: 'What we concede on purpose',
     paragraphs: [
-      'ACLED wins historical coded-event depth, academic citability, and downloadable structured datasets. GDELT wins raw archive volume back to 1979. Deep State Map wins Ukraine frontline granularity maintained by analysts. Dataminr wins proprietary social ingestion and sub-minute alerting SLAs. Recorded Future wins enterprise threat-intelligence depth across cyber, physical, and geopolitical risk. IMF PortWatch wins chokepoint coverage (28 to our ' + CHOKEPOINT_COUNT + '), bulk download, and IMF plus Oxford authority at zero cost. International SOS wins assistance delivery: 27 centers, medical evacuation, and case response. We have none of those last three, and the travel page says so.',
+      'ACLED wins historical coded-event depth, academic citability, and downloadable structured datasets. GDELT wins raw archive volume back to 1979. Deep State Map wins Ukraine frontline granularity maintained by analysts. Dataminr wins proprietary social ingestion and sub-minute alerting SLAs. Recorded Future wins enterprise threat-intelligence depth across cyber, physical, and geopolitical risk. IMF PortWatch wins chokepoint coverage (28 to our ' + CHOKEPOINT_COUNT + '), bulk download, and IMF plus Oxford authority at zero cost. International SOS wins assistance delivery: 27 centers, medical evacuation, and case response. World Monitor has no assistance centers, no medical evacuation, and no case response, and the travel page says so.',
       'Those concessions are the credibility argument. A page that swept every column would read as marketing, and marketing is the thing this family is built not to be. If you need the cell they win, buy them. If you need a no-signup multi-domain watch with published prices, REST from $99.99/month, and MCP from Pro at $39.99/month, stay on the child page and read the rest of the matrix.',
     ],
   },
@@ -408,7 +408,7 @@ export const COMPARISON_NARRATIVES = {
       ['Is World Monitor as fast as Dataminr?', 'Not as an SLA. Dataminr sells seconds-to-minutes proprietary alerting with enterprise SLAs. World Monitor cadence is source-dependent across public feeds.'],
       ['Does World Monitor ingest social media the way Dataminr does?', 'No. Dataminr\'s proprietary social ingestion is a conceded cell. World Monitor uses attributed public providers.'],
       ['Can a newsroom use World Monitor instead of Dataminr?', 'For a public-source watch, yes. For contractual alerting SLAs and proprietary social detection, no. Many rooms will keep Dataminr and add a public canvas.'],
-      ['Is there a free Dataminr alternative?', 'The World Monitor dashboard is free without signup. It is not a free Dataminr. It is a free public-source watch.'],
+      ['Does World Monitor require an enterprise contract?', 'No. The dashboard is free without signup. Dataminr licenses are enterprise-negotiated. That is a different access model, not a free Dataminr.'],
       ['Why is Dataminr\'s price cell undisclosed?', 'Because we could not cite a vendor list price on 5 September 2026. Undisclosed is the honest cell. A fabricated dollar figure would contradict this site\'s own comparison rules.'],
     ],
   },
@@ -478,8 +478,9 @@ export const COMPARISON_NARRATIVES = {
       {
         name: 'Deep State Map',
         paragraphs: [
-          'Deep State Map is free and ad-supported. Analysts maintain frontline geometry for the Ukraine theatre by hand. There is no REST API cell and no MCP cell we can verify. The archive is a Ukraine archive. The product is the line on the map, not a multi-domain index.',
+          'Deep State Map is free and ad-supported. Analysts maintain frontline geometry for the Ukraine theatre by hand. There is no REST API cell and no MCP cell we can verify. The archive is a Ukraine archive. The product is the line on the map, not a multi-domain index. Cadence is manual: the line moves when an analyst draws it, not when a scraper ticks.',
           'Who should pick it: anyone whose question is where the front is in Ukraine today at a granularity a global dashboard will not match. Who should pick something else: desks that need global conflict plus maritime, aviation, and markets, or that need a published API. Those are different jobs that happen to share a war.',
+          'The honest dual-tab desk is common. Keep Deep State Map for the line. Add a global canvas when the whiteboard has more than one theatre. This page exists because the search query uses Deep State Map\'s name even when the new job is the rest of the world. Answering that query by claiming better Ukraine geometry would be the wrong win.',
         ],
       },
     ],
@@ -507,7 +508,7 @@ export const COMPARISON_NARRATIVES = {
       'Deep State Map still wins Ukraine frontline granularity. If that is the question, this page\'s job is to send you back. If the question is the rest of the world, it is to stop you from using a theatre map as a global OS.',
     ],
     extraFaqs: [
-      ['Is Deep State Map free?', 'Yes, ad-supported. World Monitor\'s dashboard is also free, without signup.'],
+      ['Does Deep State Map cover theatres besides Ukraine?', 'No. It is a Ukraine frontline product. World Monitor covers Ukraine as one theatre among many, plus other domains.'],
       ['Does World Monitor have better Ukraine frontline detail?', 'No. Deep State Map does. The concession is explicit.'],
       ['Does Deep State Map have an API?', 'Not that we can verify from public pages. World Monitor API Starter is $99.99/month for 1,000 requests/day.'],
       ['Can I use both?', 'Yes. Theatre geometry plus a global fused watch is a normal desk. This comparison does not require a breakup.'],
@@ -692,7 +693,7 @@ export const COMPARISON_NARRATIVES = {
     ],
     extraFaqs: [
       ['Why does World Monitor have fewer chokepoints than PortWatch?', `Because the committed registry has ${CHOKEPOINT_COUNT} named chokepoints and PortWatch publishes 28. This page concedes the coverage cell instead of inflating our count.`],
-      ['Is PortWatch really free?', 'Yes, including bulk download. That is why it leads the concession.'],
+      ['Does World Monitor replace PortWatch bulk download?', 'No. PortWatch wins bulk download formats and IMF plus Oxford authority. World Monitor is the fused canvas next to those counts.'],
       ['Does World Monitor replace MarineTraffic?', 'No. MarineTraffic is vessel-level tracking. World Monitor is fused chokepoint awareness plus other domains, not a full AIS fleet platform.'],
       ['Can I use PortWatch data with World Monitor?', 'Yes in the analytical sense: PortWatch for counts, World Monitor for fusion. This page does not claim a bulk-import productized integration; it claims a desk that can read both.'],
       ['Which tool is best for commodity flows?', 'Kpler, for commercial cargo-flow analytics. World Monitor will show market context next to a chokepoint, not a Kpler-style flow model.'],
