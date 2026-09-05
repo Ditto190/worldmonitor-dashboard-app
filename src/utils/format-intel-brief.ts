@@ -12,7 +12,16 @@ type IntelBriefCitationOptions =
   | { count: number; hrefPrefix: string };
 
 function unwrapBriefEmphasisLine(line: string): string {
-  return line.replace(/^\*\*(.*)\*\*$/, '$1').replace(/^#{1,6}\s+/, '').trim();
+  let current = line.trim();
+  for (let i = 0; i < 4; i++) {
+    const next = current
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*\*(.*)\*\*$/, '$1')
+      .trim();
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
 
 function applyBriefEmphasis(escaped: string): string {

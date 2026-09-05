@@ -65,4 +65,14 @@ describe('formatIntelBrief markdown and ISO headings', () => {
     assert.match(html, /<strong>NBIM<\/strong>/);
     assert.doesNotMatch(html, /\bFOR NO\b/);
   });
+
+  it('unwraps combined heading markers before rewriting ISO titles', () => {
+    const html = formatIntelBrief(
+      '### **WHAT THIS MEANS FOR NO**\nNamed infrastructure impact.',
+      undefined,
+      'Norway',
+    );
+    assert.match(html, /What this means for Norway/);
+    assert.doesNotMatch(html, /\bFOR NO\b/);
+  });
 });

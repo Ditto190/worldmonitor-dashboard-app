@@ -5187,7 +5187,7 @@ describe('live-pulse snapshot injection (#7533)', () => {
   // #7533-allowlist: 2026-08-08 x3 2026-08-09 x4 2026-08-10 x4 2026-08-11 x3 2026-08-12 x3 2026-08-13 x4 — sourcePageLastmod pure-function fixtures
   // #7533-allowlist: 2026-08-29 x5 — STORY_CAPTURED_AT synthetic story clock and static snapshot-path fixtures
   // #7533-allowlist: 2026-09-01 x4 — CORPUS_GENERATOR_CONTENT_VERSION and synthetic development fixtures
-  // #7533-allowlist: 2026-09-02 x13 — synthetic developments timestamps
+  // #7533-allowlist: 2026-09-02 x15 — synthetic developments timestamps
   // #7533-allowlist: 2026-09-03 x13 — genuinely static: research lastmod, DataCatalog render fixture, datasetObservationCoverage fixtures
   it('rejects undocumented calendar-date literals in this file', () => {
     const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
@@ -5326,6 +5326,10 @@ describe('country recent developments', () => {
       pagePath: '/countries/tools/',
       html: '<main><h3>WATCH FOR AI</h3><p>Unrelated heading.</p></main>',
     }));
+    assert.doesNotThrow(() => assertCountryBriefPresentation({
+      pagePath: '/countries/norway/',
+      html: '<main><p>Analysts asked what this means for us.</p><div data-intel-brief><h3>What this means for Norway</h3></div></main>',
+    }));
   });
 
   it('renders frozen intel briefs as HTML with country names, not markdown or ISO codes (#7738)', () => {
@@ -5365,6 +5369,23 @@ describe('country recent developments', () => {
     assert.ok(html.includes('<strong>Norges Bank Investment Management (NBIM)</strong>'));
     assert.ok(html.includes('<h3>What this means for Norway</h3>'));
     assert.ok(!/\bFOR [A-Z]{2}\b/.test(html.replace(/<[^>]+>/g, ' ')));
+    const combined = renderCountryDevelopments({
+      countryName: 'Norway',
+      developments: {
+        headlines: [],
+        brief: {
+          text: '### **WHAT THIS MEANS FOR NO**\nNamed infrastructure impact [1].',
+          model: 'test-model',
+          generatedAt: '2026-09-02T08:16:38.074Z',
+          sources: [HEADLINE],
+        },
+        timeline: [],
+        briefSkipped: null,
+        capturedAt: '2026-09-02T08:16:38.074Z',
+      },
+    });
+    assertCountryBriefPresentation({ pagePath: '/countries/norway/', html: combined });
+    assert.ok(combined.includes('<h3>What this means for Norway</h3>'));
     assert.ok(html.includes('<h3>Situation now</h3>'));
     assert.ok(html.includes('Norway’s sovereign wealth fund proposed cutting U.S. Treasury holdings [1].'));
   });

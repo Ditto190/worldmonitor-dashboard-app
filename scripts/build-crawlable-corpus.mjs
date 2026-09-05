@@ -3003,10 +3003,16 @@ ${faqs.map((faq) => `        <details data-country-faq><summary>${escapeHtml(faq
 const INTEL_BRIEF_SECTION_RE = /^(SITUATION NOW|WHAT THIS MEANS FOR\b.*|KEY RISKS|OUTLOOK|WATCH ITEMS)\s*$/i;
 
 function unwrapBriefEmphasisLine(line) {
-  return String(line || '')
-    .replace(/^\*\*(.*)\*\*$/, '$1')
-    .replace(/^#{1,6}\s+/, '')
-    .trim();
+  let current = String(line || '').trim();
+  for (let i = 0; i < 4; i++) {
+    const next = current
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\*\*(.*)\*\*$/, '$1')
+      .trim();
+    if (next === current) break;
+    current = next;
+  }
+  return current;
 }
 
 function applyCrawlableBriefEmphasis(escaped) {
@@ -3308,6 +3314,11 @@ function corpusVisibleText(html) {
   return corpusMainHtml(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function intelBriefHtml(html) {
+  const match = corpusMainHtml(html).match(/<div\b[^>]*\bdata-intel-brief\b[^>]*>([\s\S]*?)<\/div>/i);
+  return match ? match[1] : null;
+}
+
 // #7738: prerendered country briefs were injected as escaped markdown, so
 // crawlers saw literal `**` and `WHAT THIS MEANS FOR NO`. Fail the build
 // when either artifact reaches <main>, including section titles that are
@@ -3319,14 +3330,16 @@ export function assertCountryBriefPresentation({ pagePath, html }) {
   if (main.includes('**')) {
     throw new Error(`${pagePath} renders literal markdown emphasis in <main>`);
   }
-  const headingHits = [...main.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi)];
+  const brief = intelBriefHtml(html);
+  const headingSource = brief ?? main;
+  const headingHits = [...headingSource.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi)];
   for (const hit of headingHits) {
     const text = hit[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     if (MEANS_FOR_ISO_RE.test(text)) {
       throw new Error(`${pagePath} heading leaks ISO code: ${text}`);
     }
   }
-  if (MEANS_FOR_ISO_RE.test(corpusVisibleText(html))) {
+  if (MEANS_FOR_ISO_RE.test(corpusVisibleText(brief ?? html))) {
     throw new Error(`${pagePath} brief heading leaks an ISO-3166 alpha-2 code`);
   }
 }
