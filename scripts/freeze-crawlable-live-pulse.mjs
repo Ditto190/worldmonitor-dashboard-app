@@ -30,6 +30,15 @@ import {
   liveRiskViewModel,
 } from './crawlable-live-tools.mjs';
 import { loadEnvFile } from './_seed-utils.mjs';
+import {
+  MIN_BRIEF_GROUNDING_SOURCES,
+  normalizeFrozenDevelopments,
+} from './crawlable-developments.mjs';
+import {
+  countryDisplayName,
+  countryMentionTerms,
+  mentionsCountry,
+} from '../shared/country-mention.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -217,6 +226,14 @@ const COUNTRY_TIMELINE_WINDOW_MS = COUNTRY_TIMELINE_WINDOW_DAYS * 24 * 60 * 60 *
 // from the same digest so citation indexes align with the frozen sources.
 const BRIEF_CONTEXT_MAX_CHARS = 3800;
 
+// Digest variants pooled for per-country matching (#7748). The global strip
+// still reads `full` alone (the homepage promise is the general digest), but
+// every variant is a different slice of the same feed set capped at 20 items
+// per category, and country mentions are spread across them: on 2026-09-05
+// `full` alone named 48 of 194 countries, the five variants pooled named 68.
+// `full` goes first so its rows win ties and URL de-duplication.
+const COUNTRY_DIGEST_VARIANTS = Object.freeze(['full', 'tech', 'finance', 'commodity', 'happy']);
+
 // Operator-facing review-hygiene text the chokepoint status contract appends
 // (THREAT_CONFIG_STALE_NOTE in server/worldmonitor/supply-chain/v1/get-chokepoint-status.ts).
 // It is useful in the live tool but must not be frozen into the crawlable corpus,
@@ -343,13 +360,23 @@ async function resolveLatestResilienceSnapshot() {
   }
   const relativePath = path.join('docs', 'snapshots', candidates[0].filename);
   const snapshot = JSON.parse(await fs.readFile(path.join(REPO_ROOT, relativePath), 'utf8'));
-  const codes = [
+  const rows = [
     ...(Array.isArray(snapshot.items) ? snapshot.items : []),
     ...(Array.isArray(snapshot.greyedOut) ? snapshot.greyedOut : []),
-  ]
+  ];
+  const codes = rows
     .map((row) => String(row?.code || row?.countryCode || '').toUpperCase())
     .filter((code) => /^[A-Z]{2}$/.test(code));
-  return { relativePath, codes: [...new Set(codes)].sort() };
+  // The corpus headings use the resilience snapshot's country name, so the
+  // frozen brief heading repair (#7738) must use the same one — Intl renders
+  // "Congo - Kinshasa" where the page says "DR Congo".
+  const namesByCode = new Map();
+  for (const row of rows) {
+    const code = String(row?.code || row?.countryCode || '').toUpperCase();
+    const name = String(row?.name || row?.countryName || '').trim();
+    if (/^[A-Z]{2}$/.test(code) && name && !namesByCode.has(code)) namesByCode.set(code, name);
+  }
+  return { relativePath, codes: [...new Set(codes)].sort(), namesByCode };
 }
 
 async function loadCrises() {
@@ -519,6 +546,17 @@ function emptyDevelopments(freezeStartedAt, briefSkipped) {
   };
 }
 
+// Same predicate as developmentsHasDatedItem in build-crawlable-corpus.mjs:
+// a row counts as enriched when it carries a dated headline, a brief, or a
+// timeline event. Kept local because the build imports TypeScript the freeze
+// cannot load.
+function developmentsHasDatedItem(developments) {
+  if (!developments || typeof developments !== 'object') return false;
+  if (Array.isArray(developments.headlines) && developments.headlines.length > 0) return true;
+  if (developments.brief && typeof developments.brief.text === 'string' && developments.brief.text.trim()) return true;
+  return Array.isArray(developments.timeline) && developments.timeline.length > 0;
+}
+
 // Reduce a ListFeedDigest response to the publishable headline rows.
 //
 // A row reaches the homepage with a masthead beside it, so it must carry
@@ -569,70 +607,32 @@ export function selectFrozenHeadlines(payload, limit = HEADLINE_CAPTURE_COUNT) {
   return { rows, rejections };
 }
 
-// Country matching mirrors the server's shared grounding
-// (server/worldmonitor/intelligence/v1/_country-brief-context.ts):
-// display NAME matches case-insensitively on word boundaries, while the ISO
-// code matches ONLY as an uppercase token in the raw text. Codes like IN, US
-// or NO collide with ordinary English words — a case-insensitive code match
-// swept "rally in Europe" into India's brief (post-#4898 review). This copy is
-// deliberately local: the freeze is plain .mjs and must not import server TS.
-function escapeMatchRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function countryDisplayName(code) {
-  const normalized = String(code || '').trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(normalized)) return '';
-  try {
-    const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(normalized);
-    if (!name || name.toUpperCase() === normalized || name.toLowerCase() === 'unknown region') return '';
-    return name;
-  } catch {
-    return '';
-  }
-}
-
-// These ISO codes are also common English words or abbreviations. A display
-// name match remains valid, but a bare uppercase token is too ambiguous to
-// establish country relevance. US stays eligible because it is a common and
-// intentional digest token for the United States.
-const AMBIGUOUS_ENGLISH_ISO_CODES = new Set([
-  'AI', 'AM', 'AS', 'AT', 'BE', 'BY', 'DO', 'ID', 'IN', 'IS',
-  'IT', 'LA', 'ME', 'MY', 'NO', 'SO', 'TO',
-]);
-
-function matchesCountryText(text, code, name) {
-  if (name) {
-    const term = name.trim().toLowerCase();
-    if (term && new RegExp(`(^|[^a-z0-9])${escapeMatchRegExp(term)}(?=$|[^a-z0-9])`, 'i').test(text)) {
-      return true;
-    }
-  }
-  if (AMBIGUOUS_ENGLISH_ISO_CODES.has(code)) return false;
-  // Raw text, NOT lowercased — the uppercase-token code match depends on the
-  // original casing surviving to this point.
-  return new RegExp(`(^|[^A-Za-z0-9])${escapeMatchRegExp(code)}(?=$|[^A-Za-z0-9])`).test(text);
-}
-
-// Per-country slice of ONE digest fetch (#7615). The global top headlines
-// above and every country's developments below derive from the same payload —
-// one capture path, shared with #7608, not two. Rows carry the same
-// publishability bar (masthead, https URL, publication time); ranking mirrors
-// the browser path so frozen rows match what live would show.
+// Country matching is the shared matcher (shared/country-mention.js), the
+// same one the server's anonymous grounding and the MCP tool use: display
+// names, aliases and demonyms; bare ISO codes only for the allowlist. The
+// freeze used to carry a local copy that also matched every uppercase code
+// token, which grounded Australia on "African Union (AU)" and Ethiopia on an
+// outage timed "2pm ET" (#7748).
+//
+// Per-country slice of the pooled digest fetch (#7615, widened in #7748).
+// Rows carry the same publishability bar as the global strip (masthead,
+// https URL, publication time); ranking mirrors the browser path so frozen
+// rows match what live would show. A title carrying markdown emphasis is
+// unpublishable: it would render literally in <main> (#7738 guard).
 function selectCountryHeadlines(digestItems, code, limit = COUNTRY_HEADLINE_LIMIT) {
   const normalized = String(code || '').trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(normalized) || !Array.isArray(digestItems)) return [];
-  const name = countryDisplayName(normalized);
+  const terms = countryMentionTerms(normalized);
   return digestItems
     .map((item) => {
       const title = String(item?.title || '').trim();
       const source = String(item?.source || '').trim();
       const url = normalizeHttpsUrl(item?.link);
       const publishedAt = Number(item?.publishedAt);
-      if (!title || !source || !url) return null;
+      if (!title || !source || !url || title.includes('**')) return null;
       if (!Number.isFinite(publishedAt) || publishedAt <= 0) return null;
       const text = `${title} ${typeof item?.snippet === 'string' ? item.snippet : ''}`;
-      if (!matchesCountryText(text, normalized, name)) return null;
+      if (!mentionsCountry(text, terms)) return null;
       return {
         row: { title, source, url, publishedAt: new Date(publishedAt).toISOString() },
         importanceScore: Number(item?.importanceScore) || 0,
@@ -741,7 +741,7 @@ export async function freezeCrawlableLivePulse({
   const keyed = serviceKey.trim().length > 0;
   const token = keyed ? '' : await mintSession(base);
   const authOpts = keyed ? { serviceKey } : {};
-  const { relativePath: resilienceSnapshotPath, codes } = await resolveLatestResilienceSnapshot();
+  const { relativePath: resilienceSnapshotPath, codes, namesByCode } = await resolveLatestResilienceSnapshot();
   const crises = await loadCrises();
   const chokepointIds = await loadChokepointIds();
 
@@ -820,43 +820,64 @@ export async function freezeCrawlableLivePulse({
   // Guarded like every other network step, and unlike the others it never
   // throws: a digest outage costs the strip its headline rows, not the whole
   // snapshot (see HEADLINE_CAPTURE_COUNT).
-  // The raw items are ALSO the per-country developments source below — one
-  // digest fetch feeds the global strip (#7608) and every country page
-  // (#7615), never two.
+  // The `full` items are ALSO the first slice of the per-country developments
+  // pool below — one capture path feeds the global strip (#7608) and every
+  // country page (#7615); the other variants only widen the country pool.
   const headlineErrors = [];
   let headlines = [];
-  let digestItems = [];
+  const digestItemsByVariant = new Map();
   // ListFeedDigest self-reports how it is being served. Four well-formed rows
   // off a six-hour-old last-good replay look identical to a complete capture
   // unless that verdict is carried into the artifact, so record it.
   let headlineDigestState = null;
   let headlineServedStale = null;
-  try {
-    const digest = await authedGet('/api/news/v1/list-feed-digest?variant=full&lang=en', token, base, authOpts);
-    headlineDigestState = digest?.coverage?.state ?? null;
-    headlineServedStale = typeof digest?.coverage?.servedStale === 'boolean'
-      ? digest.coverage.servedStale
-      : null;
-    const { rows, rejections } = selectFrozenHeadlines(digest, HEADLINE_CAPTURE_COUNT);
-    headlines = rows;
-    if (rows.length < HEADLINE_CAPTURE_COUNT) {
-      headlineErrors.push({
-        id: '*',
-        message: `only ${rows.length} of ${HEADLINE_CAPTURE_COUNT} digest items were publishable `
-          + `(rejected: ${Object.entries(rejections).map(([k, v]) => `${k}=${v}`).join(', ')}; `
-          + `digest state=${headlineDigestState ?? 'unknown'})`,
-      });
+  const digestVariantStates = {};
+  const digestVariantErrors = [];
+  for (const variant of COUNTRY_DIGEST_VARIANTS) {
+    try {
+      const digest = await authedGet(`/api/news/v1/list-feed-digest?variant=${variant}&lang=en`, token, base, authOpts);
+      digestVariantStates[variant] = digest?.coverage?.state ?? null;
+      if (variant === 'full') {
+        headlineDigestState = digest?.coverage?.state ?? null;
+        headlineServedStale = typeof digest?.coverage?.servedStale === 'boolean'
+          ? digest.coverage.servedStale
+          : null;
+        const { rows, rejections } = selectFrozenHeadlines(digest, HEADLINE_CAPTURE_COUNT);
+        headlines = rows;
+        if (rows.length < HEADLINE_CAPTURE_COUNT) {
+          headlineErrors.push({
+            id: '*',
+            message: `only ${rows.length} of ${HEADLINE_CAPTURE_COUNT} digest items were publishable `
+              + `(rejected: ${Object.entries(rejections).map(([k, v]) => `${k}=${v}`).join(', ')}; `
+              + `digest state=${headlineDigestState ?? 'unknown'})`,
+          });
+        }
+      }
+      const categories = digest && typeof digest === 'object' ? digest.categories : null;
+      const items = categories && typeof categories === 'object'
+        ? Object.values(categories).flatMap((bucket) => (Array.isArray(bucket?.items) ? bucket.items : []))
+        : [];
+      digestItemsByVariant.set(variant, items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // The strip is only ever the `full` digest; a failed sibling variant
+      // narrows the country pool and is recorded with the developments.
+      if (variant === 'full') headlineErrors.push({ id: '*', message });
+      digestVariantErrors.push({ code: '*', stage: 'digest', message: `${variant}: ${message}` });
     }
-    const categories = digest && typeof digest === 'object' ? digest.categories : null;
-    if (categories && typeof categories === 'object') {
-      digestItems = Object.values(categories)
-        .flatMap((bucket) => (Array.isArray(bucket?.items) ? bucket.items : []));
+    await sleep(requestGapMs);
+  }
+  // One article can sit in several variants; the pool keeps its first
+  // appearance so `full` rows win and citation provenance stays URL-keyed.
+  const digestItems = [];
+  const pooledUrls = new Set();
+  for (const variant of COUNTRY_DIGEST_VARIANTS) {
+    for (const item of digestItemsByVariant.get(variant) || []) {
+      const url = normalizeHttpsUrl(item?.link);
+      if (!url || pooledUrls.has(url)) continue;
+      pooledUrls.add(url);
+      digestItems.push(item);
     }
-  } catch (error) {
-    headlineErrors.push({
-      id: '*',
-      message: error instanceof Error ? error.message : String(error),
-    });
   }
 
   // Market tape (#7608). Three endpoints, captured individually so one bad
@@ -896,11 +917,13 @@ export async function freezeCrawlableLivePulse({
   }
 
   // Per-country recent developments (#7615). Headlines match from the digest
-  // fetched above; the brief and timeline ride the tier-gated routes, so they
-  // run only with a service key. Briefs additionally require grounding: an
-  // ungrounded brief is energy-data prose with no events, which is the defect
-  // this enrichment removes rather than replicates.
-  const developmentsErrors = [];
+  // pool fetched above; the brief and timeline ride the tier-gated routes, so
+  // they run only with a service key. Briefs additionally require grounding:
+  // an ungrounded brief is energy-data prose with no events, which is the
+  // defect this enrichment removes rather than replicates — and a brief off a
+  // single headline is a multi-horizon forecast from one source, so the floor
+  // is MIN_BRIEF_GROUNDING_SOURCES (#7748).
+  const developmentsErrors = [...digestVariantErrors];
   const headlinesByCode = new Map();
   for (const code of Object.keys(countries)) {
     headlinesByCode.set(code, selectCountryHeadlines(digestItems, code, COUNTRY_HEADLINE_LIMIT));
@@ -921,7 +944,11 @@ export async function freezeCrawlableLivePulse({
     const countryHeadlines = headlinesByCode.get(code) || [];
     const briefSkipped = !keyed
       ? 'no-service-key'
-      : countryHeadlines.length === 0 ? 'no-grounding' : null;
+      : countryHeadlines.length === 0
+        ? 'no-grounding'
+        : countryHeadlines.length < MIN_BRIEF_GROUNDING_SOURCES
+          ? 'thin-grounding'
+          : null;
     const developments = {
       ...emptyDevelopments(freezeStartedAt, briefSkipped),
       headlines: countryHeadlines,
@@ -981,7 +1008,13 @@ export async function freezeCrawlableLivePulse({
       }
       await sleep(requestGapMs);
     }
-    countries[code].developments = developments;
+    // Publish-time shape rules applied at capture so the committed JSON (and
+    // its dataset download) carries the text the page shows: no markdown
+    // emphasis, no model preamble, the country name in the brief heading.
+    countries[code].developments = normalizeFrozenDevelopments(developments, {
+      countryCode: code,
+      countryName: namesByCode.get(code) || countryDisplayName(code),
+    });
   }
 
   const geoLeaders = Object.entries(countries)
@@ -1029,11 +1062,24 @@ export async function freezeCrawlableLivePulse({
         .filter((row) => (row.developments?.headlines?.length || 0) > 0).length,
       briefCountryCount: Object.values(countries)
         .filter((row) => row.developments?.brief != null).length,
+      // Countries owed a brief attempt: keyed, and grounded on at least
+      // MIN_BRIEF_GROUNDING_SOURCES headlines. The gate below is measured
+      // against this, not against every headline-matched country.
       briefMatchedCount: Object.values(countries)
-        .filter((row) => row.developments?.briefSkipped !== 'no-grounding'
-          && (row.developments?.headlines?.length || 0) > 0).length,
+        .filter((row) => row.developments?.briefSkipped === null).length,
+      briefThinGroundingCount: Object.values(countries)
+        .filter((row) => row.developments?.briefSkipped === 'thin-grounding').length,
       timelineCountryCount: Object.values(countries)
         .filter((row) => (row.developments?.timeline?.length || 0) > 0).length,
+      // The enrichment tail (#7748): indexed pages with no dated item at all.
+      // Reported here and in the run summary so the tail is a number in every
+      // weekly PR, never a silent absence.
+      developmentsCountryCount: Object.values(countries)
+        .filter((row) => developmentsHasDatedItem(row.developments)).length,
+      developmentsMissingCount: Object.values(countries)
+        .filter((row) => !developmentsHasDatedItem(row.developments)).length,
+      developmentsDigestVariants: digestVariantStates,
+      developmentsDigestItemCount: digestItems.length,
       serviceKeyPresent: keyed,
       developmentsErrorCount: developmentsErrors.length,
     },
@@ -1122,9 +1168,23 @@ if (isMain) {
         + `quotes=${snapshot.coverage.quoteCount} `
         + `headlineCountries=${snapshot.coverage.headlineCountryCount} `
         + `briefCountries=${snapshot.coverage.briefCountryCount} `
+        + `briefThinGrounding=${snapshot.coverage.briefThinGroundingCount} `
         + `timelineCountries=${snapshot.coverage.timelineCountryCount} `
+        + `developmentsCountries=${snapshot.coverage.developmentsCountryCount} `
+        + `developmentsMissing=${snapshot.coverage.developmentsMissingCount} `
+        + `digestPool=${snapshot.coverage.developmentsDigestItemCount} `
         + `keyed=${snapshot.coverage.serviceKeyPresent}`,
       );
+      if (snapshot.coverage.developmentsMissingCount > 0) {
+        // The unenriched tail is a structural gap, not a capture error: the
+        // news pool names roughly a third of indexed countries in any week.
+        // Logged so every weekly PR states the number (#7748).
+        console.warn(
+          `[freeze-crawlable-live-pulse] ${snapshot.coverage.developmentsMissingCount} of `
+          + `${snapshot.coverage.countryCount} countries have no dated development this run `
+          + '(no digest mention, brief or timeline event).',
+        );
+      }
       if (snapshot.coverage.headlineCount < HEADLINE_CAPTURE_COUNT) {
         console.warn(
           `[freeze-crawlable-live-pulse] WARNING: only ${snapshot.coverage.headlineCount} publishable `
@@ -1186,6 +1246,7 @@ export {
   selectCountryHeadlines,
   buildBriefContext,
   countryDisplayName,
+  COUNTRY_DIGEST_VARIANTS,
   normalizeHttpsUrl,
   timelineRecord,
 };

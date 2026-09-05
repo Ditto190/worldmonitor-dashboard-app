@@ -103,7 +103,9 @@ jobs:
           npm run teasers:welcome
           node --import tsx --test --test-concurrency=1 \
             tests/crawlable-corpus.test.mjs \
+            tests/crawlable-developments.test.mjs \
             tests/crawlable-live-tools.test.mjs \
+            tests/country-mention.test.mjs \
             tests/freeze-crawlable-live-pulse.test.mjs \
             tests/welcome-teasers.test.mjs \
             tests/sitemap-generation.test.mjs
