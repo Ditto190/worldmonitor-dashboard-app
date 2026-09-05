@@ -206,6 +206,10 @@ describe('displayNameForIso2', () => {
     assert.equal(displayNameForIso2('no'), 'Norway');
     assert.equal(displayNameForIso2('US'), 'United States');
     assert.equal(displayNameForIso2('GB'), 'United Kingdom');
+    assert.equal(displayNameForIso2('PS'), 'Palestinian Territories');
+    assert.equal(displayNameForIso2('CD'), 'Congo - Kinshasa');
+    assert.equal(displayNameForIso2('LA'), 'Laos');
+    assert.equal(displayNameForIso2('KR'), 'South Korea');
     assert.equal(displayNameForIso2('ZZ'), null);
   });
 });

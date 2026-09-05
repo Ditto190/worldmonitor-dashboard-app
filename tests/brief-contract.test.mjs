@@ -250,11 +250,8 @@ describe('brief-contract wiring (source-textual)', () => {
 
   it('country-intel brief interpolates gazetteer names, not ISO-code fallbacks (#7738)', () => {
     const src = readSrc('server/worldmonitor/intelligence/v1/get-country-intel-brief.ts');
-    assert.match(src, /displayNameForIso2/);
-    assert.doesNotMatch(
-      src,
-      /TIER1_COUNTRIES\[req\.countryCode\.toUpperCase\(\)\] \|\| req\.countryCode/,
-    );
+    assert.match(src, /displayNameForIso2\(/);
+    assert.match(src, /TIER1_COUNTRIES\[countryCode\]\s*\|\|\s*displayNameForIso2\(countryCode\)/);
   });
 
   it('panel keeps cited story lines behind a disclosure and renders the freshness footer', () => {

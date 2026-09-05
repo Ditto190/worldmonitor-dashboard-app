@@ -5307,6 +5307,13 @@ describe('country recent developments', () => {
     assert.throws(
       () => assertCountryBriefPresentation({
         pagePath: '/countries/norway/',
+        html: '<main><h3>What this means for NO</h3><p>Named entity impact [1].</p></main>',
+      }),
+      /heading leaks ISO code/,
+    );
+    assert.throws(
+      () => assertCountryBriefPresentation({
+        pagePath: '/countries/norway/',
         html: '<main><h3>Country brief</h3><p>WHAT THIS MEANS FOR NO<br>Named entity impact [1].</p></main>',
       }),
       /brief heading leaks an ISO-3166 alpha-2 code/,
@@ -5314,6 +5321,10 @@ describe('country recent developments', () => {
     assert.doesNotThrow(() => assertCountryBriefPresentation({
       pagePath: '/countries/norway/',
       html: '<main><h3>What this means for Norway</h3><p><strong>NBIM</strong> proposed a sale [1].</p></main>',
+    }));
+    assert.doesNotThrow(() => assertCountryBriefPresentation({
+      pagePath: '/countries/tools/',
+      html: '<main><h3>WATCH FOR AI</h3><p>Unrelated heading.</p></main>',
     }));
   });
 

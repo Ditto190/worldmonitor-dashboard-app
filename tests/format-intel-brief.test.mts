@@ -54,4 +54,15 @@ describe('formatIntelBrief markdown and ISO headings', () => {
     assert.match(html, /What this means for Georgia/);
     assert.doesNotMatch(html, /\bFOR GE\b/);
   });
+
+  it('strips markdown heading markers before rewriting ISO titles', () => {
+    const html = formatIntelBrief(
+      '# WHAT THIS MEANS FOR NO\n* **NBIM**: sale.',
+      undefined,
+      'Norway',
+    );
+    assert.match(html, /What this means for Norway/);
+    assert.match(html, /<strong>NBIM<\/strong>/);
+    assert.doesNotMatch(html, /\bFOR NO\b/);
+  });
 });

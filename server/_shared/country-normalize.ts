@@ -53,11 +53,23 @@ const ISO2_TO_DISPLAY_NAME = (() => {
   return out;
 })();
 
+function intlRegionName(iso: string): string | null {
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(iso);
+    if (typeof name === 'string' && name.trim() && name.toUpperCase() !== iso) {
+      return name;
+    }
+  } catch {
+    // Intl.DisplayNames missing or unknown region — gazetteer fallback below.
+  }
+  return null;
+}
+
 export function displayNameForIso2(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const upper = raw.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(upper)) return null;
-  return ISO2_TO_DISPLAY_NAME.get(upper) ?? null;
+  if (!/^[A-Z]{2}$/.test(upper) || !ISO2_SET.has(upper)) return null;
+  return intlRegionName(upper) ?? ISO2_TO_DISPLAY_NAME.get(upper) ?? null;
 }
 
 export function normalizeCountryToIso2(raw: unknown): string | null {

@@ -3003,7 +3003,10 @@ ${faqs.map((faq) => `        <details data-country-faq><summary>${escapeHtml(faq
 const INTEL_BRIEF_SECTION_RE = /^(SITUATION NOW|WHAT THIS MEANS FOR\b.*|KEY RISKS|OUTLOOK|WATCH ITEMS)\s*$/i;
 
 function unwrapBriefEmphasisLine(line) {
-  return String(line || '').replace(/^\*\*(.*)\*\*$/, '$1').trim();
+  return String(line || '')
+    .replace(/^\*\*(.*)\*\*$/, '$1')
+    .replace(/^#{1,6}\s+/, '')
+    .trim();
 }
 
 function applyCrawlableBriefEmphasis(escaped) {
@@ -3064,9 +3067,9 @@ export function formatCrawlableIntelBrief(text, countryName) {
       out.push('          <h3>Watch items</h3>');
       continue;
     }
-    if (/^[•\-]\s*/.test(trimmed)) {
+    if (/^(?:[•\-]\s*|\*\s+)/.test(trimmed)) {
       openList();
-      const item = applyCrawlableBriefEmphasis(escapeHtml(trimmed.replace(/^[•\-]\s*/, '')));
+      const item = applyCrawlableBriefEmphasis(escapeHtml(trimmed.replace(/^(?:[•\-]\s*|\*\s+)/, '')));
       out.push(`            <li>${item}</li>`);
       continue;
     }
@@ -3266,7 +3269,7 @@ export function assertCountryDevelopmentsRendered({ pagePath, html, developments
       .map((line) => unwrapBriefEmphasisLine(line.trim()))
       .filter(Boolean)
       .filter((line) => !INTEL_BRIEF_SECTION_RE.test(line))
-      .map((line) => line.replace(/^[•\-]\s*/, '').replace(/\*\*/g, ''));
+      .map((line) => line.replace(/^(?:[•\-]\s*|\*\s+)/, '').replace(/\*\*/g, ''));
     const anchors = [contentLines[0], contentLines.at(-1)]
       .filter((line, index, all) => line && all.indexOf(line) === index)
       .map((line) => escapeHtml(line.slice(0, 120)));
@@ -3309,6 +3312,8 @@ function corpusVisibleText(html) {
 // crawlers saw literal `**` and `WHAT THIS MEANS FOR NO`. Fail the build
 // when either artifact reaches <main>, including section titles that are
 // still plain text rather than <h*> tags.
+const MEANS_FOR_ISO_RE = /\bwhat this means for [a-z]{2}\b/i;
+
 export function assertCountryBriefPresentation({ pagePath, html }) {
   const main = corpusMainHtml(html);
   if (main.includes('**')) {
@@ -3317,11 +3322,11 @@ export function assertCountryBriefPresentation({ pagePath, html }) {
   const headingHits = [...main.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi)];
   for (const hit of headingHits) {
     const text = hit[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (/\bFOR [A-Z]{2}\b/.test(text)) {
+    if (MEANS_FOR_ISO_RE.test(text)) {
       throw new Error(`${pagePath} heading leaks ISO code: ${text}`);
     }
   }
-  if (/\bWHAT THIS MEANS FOR [A-Z]{2}\b/.test(corpusVisibleText(html))) {
+  if (MEANS_FOR_ISO_RE.test(corpusVisibleText(html))) {
     throw new Error(`${pagePath} brief heading leaks an ISO-3166 alpha-2 code`);
   }
 }

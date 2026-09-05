@@ -12,7 +12,7 @@ type IntelBriefCitationOptions =
   | { count: number; hrefPrefix: string };
 
 function unwrapBriefEmphasisLine(line: string): string {
-  return line.replace(/^\*\*(.*)\*\*$/, '$1').trim();
+  return line.replace(/^\*\*(.*)\*\*$/, '$1').replace(/^#{1,6}\s+/, '').trim();
 }
 
 function applyBriefEmphasis(escaped: string): string {
@@ -53,8 +53,8 @@ export function formatIntelBrief(
       if (inSection) out.push('</div>');
       out.push(`<div class="brief-section"><div class="brief-section-header">${displayBriefHeader(trimmed, countryName)}</div>`);
       inSection = true;
-    } else if (trimmed.startsWith('•') || trimmed.startsWith('-')) {
-      out.push(`<div class="brief-bullet">${applyBriefEmphasis(trimmed.replace(/^[•-]\s*/, ''))}</div>`);
+    } else if (/^(?:[•\-]\s*|\*\s+)/.test(trimmed)) {
+      out.push(`<div class="brief-bullet">${applyBriefEmphasis(trimmed.replace(/^(?:[•\-]\s*|\*\s+)/, ''))}</div>`);
     } else if (trimmed.startsWith('NEXT ')) {
       const colonIdx = trimmed.indexOf(':');
       if (colonIdx !== -1) {
