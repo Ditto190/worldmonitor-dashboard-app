@@ -23,3 +23,35 @@ describe('formatIntelBrief citations', () => {
     assert.match(html, /href="#cb-news-2"/);
   });
 });
+
+describe('formatIntelBrief markdown and ISO headings', () => {
+  it('converts emphasis markers inside bullets, not just paragraphs', () => {
+    const html = formatIntelBrief(
+      'WHAT THIS MEANS FOR NO\n• **Norges Bank Investment Management (NBIM)**: sale [1].',
+      { sources: [{ title: 'CNBC', url: 'https://example.com/nbim' }] },
+      'Norway',
+    );
+    assert.match(html, /<strong>Norges Bank Investment Management \(NBIM\)<\/strong>/);
+    assert.doesNotMatch(html, /\*\*/);
+  });
+
+  it('rewrites ISO-code section titles to the country name', () => {
+    const html = formatIntelBrief(
+      'WHAT THIS MEANS FOR NO\nNamed infrastructure impact.',
+      undefined,
+      'Norway',
+    );
+    assert.match(html, /What this means for Norway/);
+    assert.doesNotMatch(html, /\bFOR NO\b/);
+  });
+
+  it('recognizes section titles wrapped in markdown emphasis', () => {
+    const html = formatIntelBrief(
+      '**WHAT THIS MEANS FOR GE**\nNamed infrastructure impact.',
+      undefined,
+      'Georgia',
+    );
+    assert.match(html, /What this means for Georgia/);
+    assert.doesNotMatch(html, /\bFOR GE\b/);
+  });
+});
