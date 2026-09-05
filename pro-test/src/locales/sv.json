@@ -692,7 +692,6 @@
       "a4": "Ja. Flaskhalsar spåras med live AIS-fartygsräkningar, vecka-över-vecka transiteringsändring och disruptionspoäng — och densitetsavvikelser flaggas mot varje sunds rullande baslinje.",
       "q5": "Hur skiljer sig detta från en konfliktkarta som Liveuamap?",
       "a5": "Konflikter är ett kartlager. World Monitor kombinerar konflikter med sjöfart, militära flygningar, infrastruktur, marknader och cyber — sedan utvärderar AI konvergensen: instabilitetsindex, eskalering av hotspots, bekräftade breaking-aviseringar och dagliga briefningar.",
-      "a5Link": "Compare World Monitor with Liveuamap and other conflict maps",
       "q6": "Varför ska jag lita på en avisering?",
       "a6": "En breaking-banner startar endast när oberoende ursprungstyper bekräftar — nyhetsklassificering, nyckelordshastighet, hotspot-eskalering, militär ökning, officiella sirener — deduplicerad och hastighetsbegränsad. Färre aviseringar, verkliga.",
       "q7": "Kan AI-agenter som Claude eller GPT använda det?",
@@ -704,7 +703,8 @@
       "q10": "Varför är World Monitor inte Palantir?",
       "a10": "Palantir gör en institutions egna data operationell inom den institutionen. World Monitor börjar från andra änden: det samlar, normaliserar, korrelerar och övervakar offentlig världsdata, och publicerar sedan det intelligensskiktet genom en gratis instrumentpanel och öppen källkod. Olika uppgift, olika produkt.",
       "q11": "Which World Monitor license do I need?",
-      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms."
+      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms.",
+      "a5Link": "Jämför World Monitor med Liveuamap och andra konfliktkartörer"
     },
     "cta": {
       "title": "Hur kommer jag igång med att övervaka världskartan?",

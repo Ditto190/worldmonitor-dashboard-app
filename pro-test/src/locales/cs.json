@@ -692,7 +692,6 @@
       "a4": "Ano. Úzká místa jsou sledována s počty živých AIS plavidel, změnami tranziturů týden na týden a skóre narušení — a anomálie hustoty jsou označeny proti základní linii každého průlivu.",
       "q5": "Jak se liší od mapy konfliktů jako Liveuamap?",
       "a5": "Konflikt je jednou z vrstev mapy. World Monitor spojuje konflikty se mořskou přepravou, vojenskými lety, infrastrukturou, trhy a kybernetiku — pak AI vyhodnotí konvergenci: indexy nestability, eskalaci hotspotů, potvrzená breaking upozornění a denní briefy.",
-      "a5Link": "Compare World Monitor with Liveuamap and other conflict maps",
       "a6": "Přerušující banner se aktivuje pouze pokud si nezávislé typy zdrojů potvrdí — klasifikace zpráv, rychlost klíčových slov, eskalace hotspotů, vojenské nárůsty, oficiální sirény — deduplikovány a omezeny podle frekvence. Méně alertů, skutečné.",
       "q7": "Mohou jej používat AI agenti jako Claude nebo GPT?",
       "a7": "Ano. World Monitor dodává MCP server se živým registrem nástrojů, takže Claude, GPT nebo jakýkoliv MCP-kompatibilní agent může dotazovat živé skóre rizik, stav průsmyků, konflikty, trhy a briefy — s JMESPath projekcí, takže agenti získají přesně to, co potřebují.",
@@ -704,7 +703,8 @@
       "q10": "Proč není World Monitor Palantir?",
       "a10": "Palantir zprovozňuje vlastní data instituce uvnitř té instituce. World Monitor začíná z druhé strany: shromažďuje, normalizuje, koreluje a monitoruje data veřejného světa, poté publikuje tuto inteligenční vrstvu přes bezplatný dashboard a open-source kód. Jiná úloha, jiný produkt.",
       "q11": "Which World Monitor license do I need?",
-      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms."
+      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms.",
+      "a5Link": "Porovnání World Monitor s Liveuamap a dalšími mapami konfliktů"
     },
     "cta": {
       "title": "Jak začít sledovat mapu světa?",

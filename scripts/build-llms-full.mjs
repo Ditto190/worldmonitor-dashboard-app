@@ -252,35 +252,29 @@ export function buildLlmsFullText({ rootDir = ROOT } = {}) {
   return `${prefix}\n\n${generated}`;
 }
 
-function writeIfChanged({ rootDir, relativePath, next, check }) {
-  const path = join(rootDir, relativePath);
-  const current = existsSync(path) ? readFileSync(path, 'utf8') : null;
-  if (current === next) return { path: relativePath, changed: false, bytes: Buffer.byteLength(next) };
-  if (check) {
-    throw new Error(`${relativePath} is stale — run npm run build:llms-full`);
-  }
-  writeFileSync(path, next);
-  return { path: relativePath, changed: true, bytes: Buffer.byteLength(next) };
-}
-
 /**
  * Writes both agent files: the Comparisons section spliced into llms.txt and
  * the full corpus. One script owns both so the section cannot drift between
- * them (#7746). Returns the llms-full result with the llms.txt result attached.
+ * them (#7746). Both outputs are rendered before anything is written or
+ * judged, so --check names every stale file at once and a render failure
+ * never leaves the pair half-written. Returns the llms-full result with the
+ * llms.txt result attached.
  */
 export function writeLlmsFull({ rootDir = ROOT, check = false } = {}) {
-  const llmsTxt = writeIfChanged({
-    rootDir,
-    relativePath: LLMS_TXT_PATH,
-    next: withComparisonsSection(read(rootDir, LLMS_TXT_PATH)),
-    check,
+  const outputs = [
+    { relativePath: LLMS_TXT_PATH, next: withComparisonsSection(read(rootDir, LLMS_TXT_PATH)) },
+    { relativePath: OUTPUT_PATH, next: buildLlmsFullText({ rootDir }) },
+  ].map(({ relativePath, next }) => {
+    const path = join(rootDir, relativePath);
+    const current = existsSync(path) ? readFileSync(path, 'utf8') : null;
+    return { path, relativePath, next, changed: current !== next, bytes: Buffer.byteLength(next) };
   });
-  const full = writeIfChanged({
-    rootDir,
-    relativePath: OUTPUT_PATH,
-    next: buildLlmsFullText({ rootDir }),
-    check,
-  });
+  const stale = outputs.filter((output) => output.changed);
+  if (check && stale.length > 0) {
+    throw new Error(`${stale.map((output) => output.relativePath).join(' and ')} stale — run npm run build:llms-full`);
+  }
+  for (const output of stale) writeFileSync(output.path, output.next);
+  const [llmsTxt, full] = outputs.map(({ relativePath, changed, bytes }) => ({ path: relativePath, changed, bytes }));
   return { ...full, llmsTxt };
 }
 

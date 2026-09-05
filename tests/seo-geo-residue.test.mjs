@@ -390,11 +390,12 @@ describe('GEO residue #7746 (compare discoverability)', () => {
       typeof en.welcome.faq.a5Link === 'string' && en.welcome.faq.a5Link.length > 0,
       'en.welcome.faq.a5Link must label the comparison link',
     );
-    // Untranslated locales mirror English verbatim; a key present only in
-    // en.json would break that equality and flip their welcome language.
+    // Every catalog carries a non-empty label: the translator backfills
+    // missing keys, and the EN baseline records the English each translation
+    // was produced from, so the baseline must match en.json exactly.
     for (const file of readdirSync(join(repoRoot, 'pro-test/src/locales'))) {
-      const locale = readJson(`pro-test/src/locales/${file}`);
-      assert.ok(typeof locale.welcome?.faq?.a5Link === 'string', `${file} must carry welcome.faq.a5Link`);
+      const label = readJson(`pro-test/src/locales/${file}`).welcome?.faq?.a5Link;
+      assert.ok(typeof label === 'string' && label.trim().length > 0, `${file} must carry a non-empty welcome.faq.a5Link`);
     }
     assert.equal(readJson('scripts/locale-baselines/pro-test.json')['welcome.faq.a5Link'], en.welcome.faq.a5Link);
     const faqSource = read('pro-test/src/welcome/FAQ.tsx');
