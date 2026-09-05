@@ -111,7 +111,7 @@ jobs:
               --base main \
               --head "$BRANCH_NAME" \
               --title "chore(resilience): refresh published snapshot ${BRANCH_NAME##*-snapshot-}" \
-              --body "Monthly credentialed CRI snapshot refresh. Rebuilds the crawlable corpus, root sitemap, and llms-full corpus." \
+              --body "Monthly credentialed CRI snapshot refresh. Rebuilds the crawlable corpus, root sitemap, and both agent files (llms.txt and llms-full.txt)." \
               > "$RUNNER_TEMP/snapshot-pr.out" 2> "$RUNNER_TEMP/snapshot-pr.err"; then
             cat "$RUNNER_TEMP/snapshot-pr.out" >> "$GITHUB_STEP_SUMMARY"
           elif grep -Fq 'GitHub Actions is not permitted to create or approve pull requests' "$RUNNER_TEMP/snapshot-pr.err"; then

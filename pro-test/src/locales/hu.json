@@ -691,7 +691,7 @@
       "q4": "Valós időben tudom követni a szűk keresztmetszetek, például Hormuz vagy Bab el-Mandeb?",
       "a4": "Igen. A szűk keresztmetszetek nyomon követésre kerülnek élő AIS hajóalakokkal, hét/hét fordulatváltás és zavar pontozásával — és a sűrűségi anomáliák mindegyik szoros alapvonalához képest jelzésre kerülnek.",
       "q5": "Miben különbözik ez egy konfliktustérképtől, mint a Liveuamap?",
-      "a5": "A konfliktus egyetlen térképréteg. A World Monitor összekapcsolja a konfliktusokat a szállítmányozással, katonai repülésekkel, infrastruktúrával, piacokkal és kibertámadásokkal — majd az AI kiértékeli a konvergenciát: instabilitási indexek, forrópontok eszkalációja, megerősített feltörési riasztások és napi tájékoztatók.",
+      "a5": "A konfliktus egyetlen térképréteg. A World Monitor összekapcsolja a konfliktusokat a tengerészeti szállítmányokkal, katonai repülésekkel, infrastruktúrával, piacokkal és kibernetikai tevékenységekkel — majd az AI kiértékeli az átfedéseket: instabilitási indexek, kritikus pontok kialakulása, megerősített hírriasztások és napi helyzetelemzések. Hasonlítsa össze a World Monitort más konfliktustérképekkel: worldmonitor.app/compare/liveuamap-alternatives.",
       "q6": "Miért bízzak egy riasztásban?",
       "a6": "Egy fontos szalagcím csak akkor jelenik meg, ha független forrásfajták megerősítik — hírosztályozás, kulcsszósebesség, kritikus pont eskalációja, katonai ugrások, hivatalos szirénák — deduplikálva és sebességkorláttal. Kevesebb riasztás, valódi riasztások.",
       "q7": "Használhatják azt AI-ügynökök, mint a Claude vagy a GPT?",
@@ -703,8 +703,7 @@
       "q10": "Miért nem a World Monitor a Palantir?",
       "a10": "A Palantir egy intézmény saját adatait működteti az adott intézményen belül. A World Monitor az ellenkező végről indul: összegyűjt, normalizál, korrelál és nyomon követ nyilvános adatokat, majd ezt az intelligencia réteget egy ingyenes irányítópulton és nyílt forráskódú kódok révén közzéteszi. Más feladat, más termék.",
       "q11": "Which World Monitor license do I need?",
-      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms.",
-      "a5Link": "A World Monitor összehasonlítása a Liveuamap-pal és egyéb konfliktustérképekkel"
+      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms."
     },
     "cta": {
       "title": "Hogyan kezdhetek a világtérkép figyelésbe?",

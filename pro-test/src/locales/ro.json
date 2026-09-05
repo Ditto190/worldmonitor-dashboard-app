@@ -691,7 +691,7 @@
       "q4": "Pot să monitorizez puncte de strângulare precum Hormuz sau Bab el-Mandeb în timp real?",
       "a4": "Da. Punctele critice sunt urmărite cu numărări live de nave AIS, schimbare de tranzit săptămânal și scoring disruptiv — și anomaliile de densitate sunt semnalate în raport cu linia de referință glisantă a fiecărui strâmtoare.",
       "q5": "Care este diferența față de o hartă de conflict ca Liveuamap?",
-      "a5": "Conflictul este un strat de hartă. World Monitor fuzionează conflictele cu transportul maritim, zborurile militare, infrastructura, piețele și cyber — apoi AI evaluează convergența: indici de instabilitate, escaladare în zone critice, alertele confirmate de ultimă oră și rapoarte zilnice.",
+      "a5": "Conflictul este un strat pe hartă. World Monitor fuzionează conflictele cu transportul maritim, zborurile militare, infrastructura, piețele și cyber — apoi AI evaluează convergența: indici de instabilitate, escaladare în punctele fierbinți, alerte de breaking corroborate și briefing-uri zilnice. Comparați World Monitor cu Liveuamap și alte hărți de conflict: worldmonitor.app/compare/liveuamap-alternatives.",
       "q6": "De ce ar trebui să am încredere într-o alertă?",
       "a6": "Un banner de ultimă oră se activează doar atunci când tipuri de origine independente corborează — clasificare știri, viteza cuvintelor cheie, escaladare pe puncte fierbinți, creșteri militare, sirenele oficiale — deduplicate și limitate la viteză. Mai puține alerte, cele reale.",
       "q7": "Pot agenți AI precum Claude sau GPT să-l folosească?",
@@ -703,8 +703,7 @@
       "q10": "De ce World Monitor nu este Palantir?",
       "a10": "Palantir face datele proprii ale unei instituții operaționale în cadrul acesteia. World Monitor pornește de la celălalt capăt: adună, normalizează, corelează și monitorizează datele din domeniul public, apoi publică acel strat de inteligență printr-un tablou de bord gratuit și cod open-source. Sarcini diferite, produse diferite.",
       "q11": "Which World Monitor license do I need?",
-      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms.",
-      "a5Link": "Comparați World Monitor cu Liveuamap și alte hărți de conflicte"
+      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms."
     },
     "cta": {
       "title": "Cum încep să monitorizez harta lumii?",

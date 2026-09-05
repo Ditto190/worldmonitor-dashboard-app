@@ -691,7 +691,7 @@
       "q4": "ホルムズ海峡やバブエルマンデブ海峡などのチョークポイントをリアルタイムで監視できますか？",
       "a4": "はい。チョークポイントはライブ AIS 船舶数、週比較輸送変化、混乱スコアリングで監視 — および密度異常は各海峡のローリングベースラインに対してフラグ付け。",
       "q5": "これはLiveuamapのような紛争マップとどう違いますか？",
-      "a5": "紛争は1つのマップレイヤーです。World Monitorは紛争と海運、軍用機、インフラ、市場、サイバーを統合し、AIが収束を評価します：不安定性指数、ホットスポット段階的激化、確認済みの速報アラート、日次ブリーフ。",
+      "a5": "紛争は1つのマップレイヤーです。World Monitorは紛争をシッピング、軍事飛行、インフラ、市場、サイバーと融合させ、AIが収束を分析します：不安定性指数、ホットスポット段階的エスカレーション、確認済みの速報アラート、日次ブリーフ。World Monitorを Liveuamap などの紛争マップと比較してください：worldmonitor.app/compare/liveuamap-alternatives",
       "q6": "アラートを信頼すべき理由は何ですか？",
       "a6": "速報バナーは独立したオリジンタイプのみが裏付けする場合にのみ発火します — ニュース分類、キーワード速度、ホットスポット段階的拡大、軍事急増、公式サイレン — 重複排除およびレート制限。アラートが少なく、本物のアラート。",
       "q7": "ClaudeやGPTなどのAIエージェントがこれを使用できますか？",
@@ -703,8 +703,7 @@
       "q10": "World Monitor が Palantir ではない理由は何ですか?",
       "a10": "Palantir は機関独自のデータをその機関内で運用可能にします。World Monitor は反対の側から始まります。公開されているデータを集約、正規化、関連付け、監視してから、その情報層を無料ダッシュボードとオープンソースコードを通じて公開します。異なるジョブ、異なるプロダクトです。",
       "q11": "Which World Monitor license do I need?",
-      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms.",
-      "a5Link": "World Monitor と Liveuamap および他の紛争マップを比較する"
+      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms."
     },
     "cta": {
       "title": "ワールドマップの監視を開始するにはどうすればよいですか?",

@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
- * Expand public/llms-full.txt from a product brief into a crawler/LLM corpus
- * (#7463). The hand-authored brief above `## Generated corpus` is preserved;
- * glossary bodies, chokepoint methodology, published chokepoint explainers,
- * CRI methodology, the corrections log, and the current ranking snapshot are
- * inlined below that heading.
+ * Generate the two agent files (#7463, #7746):
+ *   - public/llms.txt is hand-authored except its `## Comparisons` section,
+ *     which is rendered from the comparison-page registry and spliced in
+ *     ahead of `## Live Instances` on every run.
+ *   - public/llms-full.txt keeps its hand-authored brief above `## Generated
+ *     corpus`; the comparisons index, glossary bodies, chokepoint
+ *     methodology, published chokepoint explainers, CRI methodology, the
+ *     corrections log, and the current ranking snapshot are inlined below
+ *     that heading.
  *
  * Usage:
- *   npm run build:llms-full
- *   npm run build:llms-full:check
+ *   npm run build:llms-full          # rewrite whichever file is stale
+ *   npm run build:llms-full:check    # exit 1 naming every stale file
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -194,12 +198,15 @@ export function renderComparisons() {
 export function withComparisonsSection(llmsTxt) {
   const text = String(llmsTxt);
   const block = renderComparisons();
-  const start = text.indexOf(`\n${COMPARISONS_HEADING}\n`);
-  if (start !== -1) {
-    const afterHeading = start + 1 + COMPARISONS_HEADING.length + 1;
-    const nextHeading = text.indexOf('\n## ', afterHeading);
+  const headings = [...text.matchAll(/^## Comparisons$/gm)];
+  if (headings.length > 1) {
+    throw new Error(`${LLMS_TXT_PATH} carries ${headings.length} "${COMPARISONS_HEADING}" headings; keep exactly one`);
+  }
+  if (headings.length === 1) {
+    const start = headings[0].index;
+    const nextHeading = text.indexOf('\n## ', start + COMPARISONS_HEADING.length);
     const end = nextHeading === -1 ? text.length : nextHeading;
-    return `${text.slice(0, start + 1)}${block}\n${text.slice(end)}`;
+    return `${text.slice(0, start)}${block}\n${text.slice(end)}`;
   }
   const anchor = `\n${COMPARISONS_ANCHOR_HEADING}\n`;
   const at = text.indexOf(anchor);
@@ -257,8 +264,7 @@ export function buildLlmsFullText({ rootDir = ROOT } = {}) {
  * the full corpus. One script owns both so the section cannot drift between
  * them (#7746). Both outputs are rendered before anything is written or
  * judged, so --check names every stale file at once and a render failure
- * never leaves the pair half-written. Returns the llms-full result with the
- * llms.txt result attached.
+ * never leaves the pair half-written. Returns one entry per file.
  */
 export function writeLlmsFull({ rootDir = ROOT, check = false } = {}) {
   const outputs = [
@@ -274,15 +280,14 @@ export function writeLlmsFull({ rootDir = ROOT, check = false } = {}) {
     throw new Error(`${stale.map((output) => output.relativePath).join(' and ')} stale — run npm run build:llms-full`);
   }
   for (const output of stale) writeFileSync(output.path, output.next);
-  const [llmsTxt, full] = outputs.map(({ relativePath, changed, bytes }) => ({ path: relativePath, changed, bytes }));
-  return { ...full, llmsTxt };
+  return { files: outputs.map(({ relativePath, changed, bytes }) => ({ path: relativePath, changed, bytes })) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const check = process.argv.includes('--check');
   try {
     const result = writeLlmsFull({ check });
-    for (const file of [result.llmsTxt, result]) {
+    for (const file of result.files) {
       const kb = (file.bytes / 1000).toFixed(1);
       process.stdout.write(
         `${file.changed ? 'Wrote' : 'Unchanged'} ${file.path} (${kb} KB)\n`,

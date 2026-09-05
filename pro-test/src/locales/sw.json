@@ -691,7 +691,7 @@
       "q4": "Je, naweza kuandamana vituo vikuu kama Hormuz au Bab el-Mandeb wakati halisi?",
       "a4": "Ndiyo. Alama kali zinafuatiliwa na hesabu za AIS za vyombo vya moja kwa moja, mabadiliko ya mabara katika wiki na alama ya kusulia — na ubalozi wa wiani unaflagiwa dhidi ya tukio la kila tangi.",
       "q5": "Hii ni tofauti gani na ramani ya migogoro kama Liveuamap?",
-      "a5": "Mgogoro ni safu moja ya ramani. World Monitor inaunganisha misiliano na ushipping, ndege za kijeshi, miundombinu, soko na cyber — kisha AI inasambaza muunganisho: faharisi za jingine, kupaa kwa pointi kali, aleti za habari zilizothibitishwa na muhtasari ya kila siku.",
+      "a5": "Mgogoro ni safu moja ya ramani. World Monitor huunganisha migogoro na usafirishaji wa bahari, ndege za kijeshi, miundombinu, soko na cyber — kisha AI inakadiri muunganisho huo: fahirisi za kutokuwa na utulivu, kupanda kwa haraka kwa hatari, arifa za kufa zilizothibitishwa na muhtasari wa kila siku. Linganisha World Monitor na Liveuamap na ramani nyingine za mgogoro: worldmonitor.app/compare/liveuamap-alternatives.",
       "q6": "Kwa nini ninapaswa kuamini arifa?",
       "a6": "Bendera ya kuzuia inatoka tu wakati aina za chanzo zinazojitegemea zinarudia — uainishaji wa habari, kasi ya maneno muhimu, kupanda kwa moto moto, miongezeko ya kijeshi, sireni rasmi — isiyo na kurudia na kuzuia kwa kiwango. Tahadhari chache, za kweli.",
       "q7": "Je, mawakili wa AI kama Claude au GPT yanaweza kuutumia?",
@@ -703,8 +703,7 @@
       "q10": "Kwa nini World Monitor si Palantir?",
       "a10": "Palantir inafanya data ya taasisi operative ndani ya taasisi hiyo. World Monitor inaanza kutoka upande mwingine: inakusanya, kurekezesha, kuhusiana, na kufuatilia data ya dunia nyingi, kisha kuchapisha tabaka hilo la akili kupitia dasibodi ya bure na nambari wazi. Kazi tofauti, bidhaa tofauti.",
       "q11": "Ni leseni gani ya World Monitor ninayohitaji?",
-      "a11": "Chagua kulingana na nani atakayetumia matokeo. Leseni ya Personal ya Pro ni kwa mtu mmoja anayetumia World Monitor kwa utafiti na maamuzi yao. Pro Business inaruhusu mtumiaji mmoja aliyepewa leseni kuutumia kwa kazi ya kampuni au mteja, zana za ndani, na ripoti. API Starter inakamatia matumizi ya API ndani ya taasisi moja, bila kusambaza mteja. API Business inaruhusu taasisi hiyo kuingeza data ya World Monitor katika bidhaa na huduma kwa wateja wake. Enterprise inakamatia viti vya kaida, kuweka lebo, na usambazaji. Leseni hizi za usomaji wa sukari ni tofauti na leseni za nambari ya AGPL/MIT. Masharti kamili: worldmonitor.app/docs/terms.",
-      "a5Link": "Linganisha World Monitor na Liveuamap na ramani nyingine za migogoro"
+      "a11": "Chagua kulingana na nani atakayetumia matokeo. Leseni ya Personal ya Pro ni kwa mtu mmoja anayetumia World Monitor kwa utafiti na maamuzi yao. Pro Business inaruhusu mtumiaji mmoja aliyepewa leseni kuutumia kwa kazi ya kampuni au mteja, zana za ndani, na ripoti. API Starter inakamatia matumizi ya API ndani ya taasisi moja, bila kusambaza mteja. API Business inaruhusu taasisi hiyo kuingeza data ya World Monitor katika bidhaa na huduma kwa wateja wake. Enterprise inakamatia viti vya kaida, kuweka lebo, na usambazaji. Leseni hizi za usomaji wa sukari ni tofauti na leseni za nambari ya AGPL/MIT. Masharti kamili: worldmonitor.app/docs/terms."
     },
     "cta": {
       "title": "Ninaanzia vipi kuangalia ramani ya dunia?",

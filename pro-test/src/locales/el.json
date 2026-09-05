@@ -691,7 +691,7 @@
       "q4": "Μπορώ να παρακολουθώ κομβικά σημεία όπως το Hormuz ή το Bab el-Mandeb σε πραγματικό χρόνο;",
       "a4": "Ναι. Τα bottlenecks παρακολουθούνται με live καταμέτρηση σκαφών AIS, εβδομαδιαία μεταβολή διαδρομής και βαθμολόγηση διακοπής — και οι ανωμαλίες πυκνότητας σημαιοφορούνται έναντι του κυλιόμενου baseline κάθε στενού.",
       "q5": "Πώς διαφέρει από έναν χάρτη σύγκρουσης όπως ο Liveuamap;",
-      "a5": "Η σύγκρουση είναι ένα επίπεδο χάρτη. Το World Monitor συγχωνεύει συγκρούσεις με ναυτιλία, στρατιωτικές πτήσεις, υποδομές, αγορές και κυβερνοχώρο — και στη συνέχεια η AI βαθμολογεί τη σύγκλιση: δείκτες αστάθειας, κλιμάκωση hotspot, επιβεβαιωμένες breaking alerts και ημερήσια briefing.",
+      "a5": "Η σύγκρουση είναι ένα επίπεδο χάρτη. Το World Monitor συνδυάζει συγκρούσεις με ναυτιλία, στρατιωτικές πτήσεις, υποδομές, αγορές και cyber — και στη συνέχεια η AI αξιολογεί τη σύγκλιση: δείκτες αστάθειας, κλιμάκωση εστίας, επαληθευμένες ειδοποιήσεις BREAKING και καθημερινές συνοπτικές εκθέσεις. Συγκρίνετε το World Monitor με το Liveuamap και άλλους χάρτες συγκρούσεων: worldmonitor.app/compare/liveuamap-alternatives.",
       "q6": "Γιατί να εμπιστευθώ ένα alert;",
       "a6": "Ένα breaking banner σημαίνει μόνο όταν ανεξάρτητοι origin types επιβεβαιώνουν — news classification, keyword velocity, hotspot escalation, military surges, official sirens — deduplicated και rate-limited. Λιγότερα alerts, αληθινά.",
       "q7": "Μπορούν AI agents όπως Claude ή GPT να το χρησιμοποιήσουν;",
@@ -703,8 +703,7 @@
       "q10": "Γιατί το World Monitor δεν είναι Palantir;",
       "a10": "Το Palantir καθιστά τα δικά της δεδομένα μιας ιδρύματος λειτουργικά εντός αυτού του ιδρύματος. Το World Monitor ξεκινά από το άλλο άκρο: συγκεντρώνει, κανονικοποιεί, συσχετίζει και παρακολουθεί δεδομένα του δημόσιου κόσμου, και στη συνέχεια δημοσιεύει αυτό το στρώμα πληροφοριών μέσω ενός δωρεάν πίνακα ελέγχου και κώδικα ανοικτής πηγής. Διαφορετική εργασία, διαφορετικό προϊόν.",
       "q11": "Which World Monitor license do I need?",
-      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms.",
-      "a5Link": "Σύγκριση του World Monitor με το Liveuamap και άλλους χάρτες σύγκρουσης"
+      "a11": "Choose based on who will use the output. Pro's Personal license is for one person using World Monitor for their own research and decisions. Pro Business lets one licensed user use it for company or client work, internal tools, and reports. API Starter covers API use inside one organization, with no customer redistribution. API Business lets that organization embed World Monitor data in products and services for its customers. Enterprise covers custom seats, white-labeling, and deployments. These subscription licenses are separate from the AGPL/MIT source-code licenses. Full terms: worldmonitor.app/docs/terms."
     },
     "cta": {
       "title": "Πώς ξεκινώ να παρακολουθώ τον παγκόσμιο χάρτη;",

@@ -383,28 +383,59 @@ describe('GEO residue #7746 (compare discoverability)', () => {
     }
   });
 
+  it('splices the section idempotently and fails loudly on malformed input', () => {
+    const doc = '# X\n\n## AI Search Answer Blocks\n\nbody\n\n## Live Instances\n\n- a\n';
+    const once = withComparisonsSection(doc);
+    assert.ok(once.includes(`\n${COMPARISONS_HEADING}\n`), 'first run inserts the section');
+    assert.ok(once.indexOf(COMPARISONS_HEADING) < once.indexOf('## Live Instances'), 'inserted ahead of Live Instances');
+    assert.equal(withComparisonsSection(once), once, 'the inserted document is a fixed point');
+    const edited = once.replace('- [Compare World Monitor]', '- [Stale]');
+    assert.notEqual(edited, once);
+    assert.equal(withComparisonsSection(edited), once, 'a hand-edited section is replaced in place');
+    assert.throws(() => withComparisonsSection('# X\n\n## Documentation\n\n- a\n'), /Live Instances/);
+    assert.throws(() => withComparisonsSection(`${once}\n${COMPARISONS_HEADING}\n\nextra\n`), /exactly one/);
+  });
+
   it('links the Liveuamap FAQ answer to the comparison page on the homepage and its agent mirror', () => {
+    const label = 'worldmonitor.app/compare/liveuamap-alternatives';
+    const href = '/compare/liveuamap-alternatives/';
     const en = readJson('pro-test/src/locales/en.json');
     assert.equal(en.welcome.faq.q5, 'How is this different from a conflict map like Liveuamap?');
-    assert.ok(
-      typeof en.welcome.faq.a5Link === 'string' && en.welcome.faq.a5Link.length > 0,
-      'en.welcome.faq.a5Link must label the comparison link',
-    );
-    // Every catalog carries a non-empty label: the translator backfills
-    // missing keys, and the EN baseline records the English each translation
-    // was produced from, so the baseline must match en.json exactly.
+    // The destination rides inside the answer string, like the terms link in
+    // a11, so the FAQPage JSON-LD keeps it and the translator pins the URL.
+    assert.ok(en.welcome.faq.a5.endsWith(`: ${label}.`), 'en a5 must end with the comparison destination');
+    assert.equal(en.welcome.faq.a5Link, undefined, 'the label lives in a5, not a separate key');
     for (const file of readdirSync(join(repoRoot, 'pro-test/src/locales'))) {
-      const label = readJson(`pro-test/src/locales/${file}`).welcome?.faq?.a5Link;
-      assert.ok(typeof label === 'string' && label.trim().length > 0, `${file} must carry a non-empty welcome.faq.a5Link`);
+      const answer = readJson(`pro-test/src/locales/${file}`).welcome?.faq?.a5;
+      assert.ok(typeof answer === 'string' && answer.includes(label), `${file} a5 must keep the comparison destination`);
     }
-    assert.equal(readJson('scripts/locale-baselines/pro-test.json')['welcome.faq.a5Link'], en.welcome.faq.a5Link);
+    assert.equal(readJson('scripts/locale-baselines/pro-test.json')['welcome.faq.a5'], en.welcome.faq.a5);
+    // FAQ.tsx maps that label to the route, and the route must be one the
+    // comparison registry actually emits, so a renamed slug cannot leave the
+    // homepage on a 404 while every generated surface moves.
     const faqSource = read('pro-test/src/welcome/FAQ.tsx');
-    assert.match(faqSource, /'\/compare\/liveuamap-alternatives\/'/, 'FAQ.tsx must link the Liveuamap alternatives comparison');
-    assert.match(faqSource, /welcome\.faq\.a5Link/);
+    const mapping = faqSource.match(/label: '([^']+)', href: '(\/compare\/[^']+)'/);
+    assert.ok(mapping, 'FAQ.tsx must map a compare label to its route');
+    assert.equal(mapping[1], label);
+    assert.equal(mapping[2], href);
+    assert.ok(
+      comparisonDiscoveryEntries('https://www.worldmonitor.app').some((entry) => entry.url === `https://www.worldmonitor.app${href}`),
+      'the FAQ route must be a registered comparison page',
+    );
     assert.match(
       read('public/home.md'),
       /\]\(https:\/\/www\.worldmonitor\.app\/compare\/\)/,
       'home.md must link the comparison hub',
+    );
+    assert.match(
+      read('public/ai-search.md'),
+      /^- Competitor comparisons[^\n]*https:\/\/www\.worldmonitor\.app\/compare\/$/m,
+      'ai-search.md Relevant Pages must list the comparison hub',
+    );
+    assert.match(
+      read('.github/workflows/resilience-snapshot-refresh.yml'),
+      /git add [^\n]*public\/llms\.txt/,
+      'the monthly refresh must stage llms.txt now that build:llms-full owns it',
     );
   });
 });
