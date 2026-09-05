@@ -9,7 +9,8 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { buildLlmsFullText, redactInternalApiOrigins } from '../scripts/build-llms-full.mjs';
+import { comparisonDiscoveryEntries } from '../scripts/build-comparison-pages.mjs';
+import { COMPARISONS_HEADING, buildLlmsFullText, redactInternalApiOrigins, withComparisonsSection } from '../scripts/build-llms-full.mjs';
 import { resolveLatestLivePulseSnapshotPath } from '../scripts/build-crawlable-corpus.mjs';
 import { parseSitemapDocument } from '../scripts/verify-sitemaps.mjs';
 
@@ -313,6 +314,96 @@ describe('GEO residue #7463 filesystem', () => {
       names.includes('server.json'),
       false,
       'well-known server.json must be a rewrite alias, not a second copy of the card',
+    );
+  });
+});
+
+// The 13 /compare/ pages scored 85–92 on citability yet were referenced from
+// none of the surfaces built to tell an assistant what the site offers: zero
+// mentions in llms.txt, llms-full.txt, or the served homepage (#7746). The
+// section is generated from COMPARISON_PAGES and spliced into llms.txt by the
+// same script that emits llms-full.txt, so the two cannot drift from each
+// other or from the pages; the sitemap cross-check catches a route family
+// that ships without a discovery entry at all.
+describe('GEO residue #7746 (compare discoverability)', () => {
+  const llmsTxt = () => read('public/llms.txt');
+  const sitemapCompareUrls = () =>
+    parseSitemapDocument(read('public/sitemap-main.xml')).locations
+      .filter((loc) => new URL(loc).pathname.startsWith('/compare/'))
+      .sort();
+
+  it('lists every sitemap /compare/ URL in llms.txt and the generated llms-full corpus', () => {
+    const urls = sitemapCompareUrls();
+    assert.ok(urls.length >= 13, `sitemap-main.xml should carry the 13-route compare family, got ${urls.length}`);
+    const generated = buildLlmsFullText({ rootDir: repoRoot });
+    for (const url of urls) {
+      assert.ok(llmsTxt().includes(`](${url})`), `public/llms.txt must link ${url}`);
+      assert.ok(generated.includes(`](${url})`), `generated llms-full must link ${url}`);
+    }
+  });
+
+  it('keeps the llms.txt Comparisons section in sync with the generator, between Answer Blocks and Live Instances', () => {
+    const body = llmsTxt();
+    assert.equal(
+      withComparisonsSection(body),
+      body,
+      'public/llms.txt Comparisons section is stale — run npm run build:llms-full',
+    );
+    const answerBlocks = body.indexOf('\n## AI Search Answer Blocks\n');
+    const comparisons = body.indexOf(`\n${COMPARISONS_HEADING}\n`);
+    const liveInstances = body.indexOf('\n## Live Instances\n');
+    assert.ok(answerBlocks !== -1 && comparisons !== -1 && liveInstances !== -1, 'all three headings must exist');
+    assert.ok(
+      answerBlocks < comparisons && comparisons < liveInstances,
+      'Comparisons must sit between AI Search Answer Blocks and Live Instances',
+    );
+    assert.equal(
+      (body.match(new RegExp(`^${COMPARISONS_HEADING}$`, 'mg')) ?? []).length,
+      1,
+      'llms.txt must carry exactly one Comparisons section',
+    );
+  });
+
+  it('derives one query-led discovery entry per compare route, matching the sitemap set exactly', () => {
+    const entries = comparisonDiscoveryEntries('https://www.worldmonitor.app');
+    assert.deepEqual(entries.map((entry) => entry.url).sort(), sitemapCompareUrls());
+    const descriptions = new Set();
+    for (const entry of entries) {
+      assert.ok(entry.title.length > 0, `${entry.url} needs a title`);
+      assert.ok(
+        entry.description.length >= 60 && entry.description.length <= 240,
+        `${entry.url} summary must be 60–240 chars, got ${entry.description.length}`,
+      );
+      assert.ok(!descriptions.has(entry.description), `${entry.url} summary duplicates another entry`);
+      descriptions.add(entry.description);
+      assert.ok(
+        llmsTxt().includes(`- [${entry.title}](${entry.url}): ${entry.description}`),
+        `llms.txt must carry the exact entry for ${entry.url}`,
+      );
+    }
+  });
+
+  it('links the Liveuamap FAQ answer to the comparison page on the homepage and its agent mirror', () => {
+    const en = readJson('pro-test/src/locales/en.json');
+    assert.equal(en.welcome.faq.q5, 'How is this different from a conflict map like Liveuamap?');
+    assert.ok(
+      typeof en.welcome.faq.a5Link === 'string' && en.welcome.faq.a5Link.length > 0,
+      'en.welcome.faq.a5Link must label the comparison link',
+    );
+    // Untranslated locales mirror English verbatim; a key present only in
+    // en.json would break that equality and flip their welcome language.
+    for (const file of readdirSync(join(repoRoot, 'pro-test/src/locales'))) {
+      const locale = readJson(`pro-test/src/locales/${file}`);
+      assert.ok(typeof locale.welcome?.faq?.a5Link === 'string', `${file} must carry welcome.faq.a5Link`);
+    }
+    assert.equal(readJson('scripts/locale-baselines/pro-test.json')['welcome.faq.a5Link'], en.welcome.faq.a5Link);
+    const faqSource = read('pro-test/src/welcome/FAQ.tsx');
+    assert.match(faqSource, /'\/compare\/liveuamap-alternatives\/'/, 'FAQ.tsx must link the Liveuamap alternatives comparison');
+    assert.match(faqSource, /welcome\.faq\.a5Link/);
+    assert.match(
+      read('public/home.md'),
+      /\]\(https:\/\/www\.worldmonitor\.app\/compare\/\)/,
+      'home.md must link the comparison hub',
     );
   });
 });

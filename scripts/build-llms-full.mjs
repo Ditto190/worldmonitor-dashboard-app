@@ -16,12 +16,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { GLOSSARY_TERMS } from '../blog-site/src/data/glossary.ts';
+import { COMPARISON_MATRIX_COLUMNS, comparisonDiscoveryEntries } from './build-comparison-pages.mjs';
 import { resolveLatestResilienceSnapshotPath } from './build-crawlable-corpus.mjs';
 import { CHOKEPOINT_CONTENT } from './chokepoint-page-content.mjs';
+import { SITE_ORIGIN } from './discover-content-corpus-pages.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUTPUT_PATH = 'public/llms-full.txt';
+export const LLMS_TXT_PATH = 'public/llms.txt';
 export const LLMS_FULL_GENERATED_HEADING = '## Generated corpus';
+export const COMPARISONS_HEADING = '## Comparisons';
+const COMPARISONS_ANCHOR_HEADING = '## Live Instances';
 
 const CHOKEPOINT_BLOGS = [
   'blog-site/src/content/blog/what-is-a-maritime-chokepoint.md',
@@ -164,6 +169,46 @@ function renderSnapshotTable(rootDir) {
   return lines.join('\n');
 }
 
+/**
+ * The /compare/ family scored 85–92 on citability yet was referenced from
+ * none of the discovery surfaces (#7746). One entry per route, derived from
+ * the same COMPARISON_PAGES that emit the pages, so a new comparison cannot
+ * ship without an entry and a renamed one cannot leave a stale link.
+ */
+export function renderComparisons() {
+  const entries = comparisonDiscoveryEntries(SITE_ORIGIN);
+  return [
+    COMPARISONS_HEADING,
+    '',
+    `A comparison hub plus ${entries.length - 1} head-to-head and category pages. Every page uses the same ${COMPARISON_MATRIX_COLUMNS.length}-column matrix (${COMPARISON_MATRIX_COLUMNS.join(', ')}), states what each competitor wins, and answers the questions engines lift verbatim. Prices were checked at publication and can change.`,
+    '',
+    ...entries.map((entry) => `- [${entry.title}](${entry.url}): ${entry.description}`),
+  ].join('\n');
+}
+
+/**
+ * Splice the generated Comparisons section into the hand-maintained
+ * llms.txt: replace the existing section in place, or insert it ahead of
+ * Live Instances the first time. Idempotent, so --check can diff it.
+ */
+export function withComparisonsSection(llmsTxt) {
+  const text = String(llmsTxt);
+  const block = renderComparisons();
+  const start = text.indexOf(`\n${COMPARISONS_HEADING}\n`);
+  if (start !== -1) {
+    const afterHeading = start + 1 + COMPARISONS_HEADING.length + 1;
+    const nextHeading = text.indexOf('\n## ', afterHeading);
+    const end = nextHeading === -1 ? text.length : nextHeading;
+    return `${text.slice(0, start + 1)}${block}\n${text.slice(end)}`;
+  }
+  const anchor = `\n${COMPARISONS_ANCHOR_HEADING}\n`;
+  const at = text.indexOf(anchor);
+  if (at === -1) {
+    throw new Error(`${LLMS_TXT_PATH} must carry a "${COMPARISONS_ANCHOR_HEADING}" heading to anchor the Comparisons section`);
+  }
+  return `${text.slice(0, at + 1)}${block}\n${text.slice(at)}`;
+}
+
 export function buildLlmsFullText({ rootDir = ROOT } = {}) {
   const existing = existsSync(join(rootDir, OUTPUT_PATH))
     ? read(rootDir, OUTPUT_PATH)
@@ -172,7 +217,9 @@ export function buildLlmsFullText({ rootDir = ROOT } = {}) {
   const generated = [
     LLMS_FULL_GENERATED_HEADING,
     '',
-    'The sections below are produced by `npm run build:llms-full` from glossary terms, chokepoint methodology, published chokepoint explainers, the Country Resilience Index methodology, the corrections log, and the current published ranking snapshot.',
+    'The sections below are produced by `npm run build:llms-full` from the comparison-page registry, glossary terms, chokepoint methodology, published chokepoint explainers, the Country Resilience Index methodology, the corrections log, and the current published ranking snapshot.',
+    '',
+    renderComparisons().trim(),
     '',
     renderGlossary().trim(),
     '',
@@ -205,26 +252,48 @@ export function buildLlmsFullText({ rootDir = ROOT } = {}) {
   return `${prefix}\n\n${generated}`;
 }
 
-export function writeLlmsFull({ rootDir = ROOT, check = false } = {}) {
-  const next = buildLlmsFullText({ rootDir });
-  const path = join(rootDir, OUTPUT_PATH);
+function writeIfChanged({ rootDir, relativePath, next, check }) {
+  const path = join(rootDir, relativePath);
   const current = existsSync(path) ? readFileSync(path, 'utf8') : null;
-  if (current === next) return { path: OUTPUT_PATH, changed: false, bytes: Buffer.byteLength(next) };
+  if (current === next) return { path: relativePath, changed: false, bytes: Buffer.byteLength(next) };
   if (check) {
-    throw new Error(`${OUTPUT_PATH} is stale — run npm run build:llms-full`);
+    throw new Error(`${relativePath} is stale — run npm run build:llms-full`);
   }
   writeFileSync(path, next);
-  return { path: OUTPUT_PATH, changed: true, bytes: Buffer.byteLength(next) };
+  return { path: relativePath, changed: true, bytes: Buffer.byteLength(next) };
+}
+
+/**
+ * Writes both agent files: the Comparisons section spliced into llms.txt and
+ * the full corpus. One script owns both so the section cannot drift between
+ * them (#7746). Returns the llms-full result with the llms.txt result attached.
+ */
+export function writeLlmsFull({ rootDir = ROOT, check = false } = {}) {
+  const llmsTxt = writeIfChanged({
+    rootDir,
+    relativePath: LLMS_TXT_PATH,
+    next: withComparisonsSection(read(rootDir, LLMS_TXT_PATH)),
+    check,
+  });
+  const full = writeIfChanged({
+    rootDir,
+    relativePath: OUTPUT_PATH,
+    next: buildLlmsFullText({ rootDir }),
+    check,
+  });
+  return { ...full, llmsTxt };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const check = process.argv.includes('--check');
   try {
     const result = writeLlmsFull({ check });
-    const kb = (result.bytes / 1000).toFixed(1);
-    process.stdout.write(
-      `${result.changed ? 'Wrote' : 'Unchanged'} ${result.path} (${kb} KB)\n`,
-    );
+    for (const file of [result.llmsTxt, result]) {
+      const kb = (file.bytes / 1000).toFixed(1);
+      process.stdout.write(
+        `${file.changed ? 'Wrote' : 'Unchanged'} ${file.path} (${kb} KB)\n`,
+      );
+    }
   } catch (err) {
     process.stderr.write(`${err.stack || err.message}\n`);
     process.exit(1);

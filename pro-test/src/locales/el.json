@@ -692,6 +692,7 @@
       "a4": "Ναι. Τα bottlenecks παρακολουθούνται με live καταμέτρηση σκαφών AIS, εβδομαδιαία μεταβολή διαδρομής και βαθμολόγηση διακοπής — και οι ανωμαλίες πυκνότητας σημαιοφορούνται έναντι του κυλιόμενου baseline κάθε στενού.",
       "q5": "Πώς διαφέρει από έναν χάρτη σύγκρουσης όπως ο Liveuamap;",
       "a5": "Η σύγκρουση είναι ένα επίπεδο χάρτη. Το World Monitor συγχωνεύει συγκρούσεις με ναυτιλία, στρατιωτικές πτήσεις, υποδομές, αγορές και κυβερνοχώρο — και στη συνέχεια η AI βαθμολογεί τη σύγκλιση: δείκτες αστάθειας, κλιμάκωση hotspot, επιβεβαιωμένες breaking alerts και ημερήσια briefing.",
+      "a5Link": "Compare World Monitor with Liveuamap and other conflict maps",
       "q6": "Γιατί να εμπιστευθώ ένα alert;",
       "a6": "Ένα breaking banner σημαίνει μόνο όταν ανεξάρτητοι origin types επιβεβαιώνουν — news classification, keyword velocity, hotspot escalation, military surges, official sirens — deduplicated και rate-limited. Λιγότερα alerts, αληθινά.",
       "q7": "Μπορούν AI agents όπως Claude ή GPT να το χρησιμοποιήσουν;",

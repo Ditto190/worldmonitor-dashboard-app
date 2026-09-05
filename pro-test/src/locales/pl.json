@@ -692,6 +692,7 @@
       "a4": "Tak. Punkty krytyczne są monitorowane z live licznikami statków AIS, zmianą przejść tygodniowo i score'owaniem perturbacji — a anomalie gęstości są flagowane względem bazową linii każdej cieśniny na bieżąco.",
       "q5": "Czym to różni się od mapy konfliktów takie jak Liveuamap?",
       "a5": "Konflikt to jedna warstwa mapy. World Monitor łączy konflikty z transportem morskim, lotami wojskowymi, infrastrukturą, rynkami i cyberzagrożeniami — następnie AI ocenia zbieżność: wskaźniki niestabilności, eskalację hotspotów, potwierdzane alerty breaking i codzienne briefingi.",
+      "a5Link": "Compare World Monitor with Liveuamap and other conflict maps",
       "q6": "Dlaczego powinienem ufać alertowi?",
       "a6": "Baner przerwania pojawia się tylko gdy niezależne typy źródeł się potwierdzą — klasyfikacja wiadomości, prędkość słów kluczowych, eskalacja gorących punktów, surge wojskowości, oficjalne syreny — deduplikowane i ograniczone. Mniej alertów, prawdziwe.",
       "q7": "Czy agenci AI takie jak Claude lub GPT mogą go używać?",

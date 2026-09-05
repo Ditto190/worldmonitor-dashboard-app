@@ -89,6 +89,10 @@ test('built welcome page ships the real hero in #root before JavaScript', { skip
   assert.match(rootContent, /Which World Monitor license do I need\?/);
   assert.match(rootContent, /API Business lets that organization embed World Monitor data/);
   assert.match(rootContent, /href="\/docs\/terms"[^>]*>worldmonitor\.app\/docs\/terms<\/a>/);
+  // The Liveuamap FAQ is the homepage's one link into the /compare/ family;
+  // it has to survive prerender so non-JS crawlers see it (#7746).
+  const faqContent = rootContent.slice(rootContent.indexOf('id="faq"'));
+  assert.match(faqContent, /href="\/compare\/liveuamap-alternatives\/"[^>]*>Compare World Monitor with Liveuamap and other conflict maps<\/a>/);
   assert.match(rootContent, /href="\/sources\/\?utm_source=welcome-hero"/);
   assert.match(rootContent, /href="\/sources\/\?utm_source=welcome-depth"/);
   assert.match(rootContent, /href="\/sources\/\?utm_source=welcome-footer"[^>]*>Sources<\/a>/);
