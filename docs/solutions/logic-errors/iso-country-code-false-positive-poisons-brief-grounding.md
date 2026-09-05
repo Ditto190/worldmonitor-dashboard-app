@@ -145,7 +145,7 @@ The global homepage strip still reads `full` alone; only the per-country pool wi
 
 ### Publish-time shape rules
 
-`normalizeFrozenDevelopments` (`scripts/crawlable-developments.mjs:130`) is idempotent and runs at both ends. It strips `**`, `__` and ATX heading hashes from every published string — headline titles, brief text, timeline titles and summaries — drops a model preamble before the first contract section unless that preamble carries a `[n]` citation, repairs "WHAT THIS MEANS FOR <CODE>" to the country name when the code is this page's own, and withholds a brief below the publisher floor while keeping its dated headlines. A malformed `sources` field is deliberately handed back untouched (`scripts/crawlable-developments.mjs:146-148`) so the renderer's shape validation reds the build instead of the rule quietly withholding a broken row.
+`normalizeFrozenDevelopments` (`scripts/crawlable-developments.mjs:130`) is idempotent and runs at both ends. It strips `**`, `__` and ATX heading hashes from every published string — headline titles, brief text, timeline titles and summaries — drops a model preamble before the first contract section unless that preamble carries a `[n]` citation, repairs `WHAT THIS MEANS FOR <CODE>` to the country name when the code is this page's own, and withholds a brief below the publisher floor while keeping its dated headlines. A malformed `sources` field is deliberately handed back untouched (`scripts/crawlable-developments.mjs:146-148`) so the renderer's shape validation reds the build instead of the rule quietly withholding a broken row.
 
 ### A guard on rendered output
 
