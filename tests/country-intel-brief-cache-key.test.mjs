@@ -5,8 +5,6 @@ import {
   deriveCountryIntelCacheKey,
   buildSharedCountryContext,
   countryBriefSearchTerms,
-  includesCountryTerm,
-  includesCountryCodeToken,
   matchesCountry,
 } from '../server/worldmonitor/intelligence/v1/_country-brief-context.ts';
 
@@ -21,7 +19,7 @@ describe('country intel brief cache key derivation', () => {
       contextHash: 'bbbbbbbbbbbbbbbb', frameworkHash: '', energyYear: '2024', energyImportYear: '2023',
     });
     assert.equal(a, b, 'anon key must not vary with client context');
-    assert.ok(a.startsWith('ci-sebuf:v6:FR:en:shared'), `anon key should use shared namespace, got ${a}`);
+    assert.ok(a.startsWith('ci-sebuf:v7:FR:en:shared'), `anon key should use shared namespace, got ${a}`);
   });
 
   it('anon key ignores framework hash (framework is premium-only input)', () => {
@@ -54,7 +52,7 @@ describe('country intel brief cache key derivation', () => {
     assert.notEqual(mk('aaaaaaaaaaaaaaaa', ''), mk('bbbbbbbbbbbbbbbb', ''), 'premium context must personalize the key');
     assert.equal(mk('aaaaaaaaaaaaaaaa', ''), mk('aaaaaaaaaaaaaaaa', ''), 'same premium context must share the key');
     assert.notEqual(mk('aaaaaaaaaaaaaaaa', 'deadbeef'), mk('aaaaaaaaaaaaaaaa', ''), 'framework must personalize the key');
-    assert.ok(mk('aaaaaaaaaaaaaaaa', '').startsWith('ci-sebuf:v6:FR:en:aaaaaaaaaaaaaaaa'));
+    assert.ok(mk('aaaaaaaaaaaaaaaa', '').startsWith('ci-sebuf:v7:FR:en:aaaaaaaaaaaaaaaa'));
     assert.ok(!mk('aaaaaaaaaaaaaaaa', '').includes(':shared'));
   });
 });
@@ -122,16 +120,26 @@ describe('country term matching', () => {
   });
 
   it('matches display names on word boundaries, case-insensitively', () => {
-    assert.equal(includesCountryTerm('France announces plan', 'france'), true);
-    assert.equal(includesCountryTerm('shipment from Indiana port', 'india'), false, '"india" inside "Indiana" must not match');
+    assert.equal(matchesCountry('France announces plan', countryBriefSearchTerms('FR')), true);
+    assert.equal(matchesCountry('shipment from Indiana port', countryBriefSearchTerms('IN')), false, '"india" inside "Indiana" must not match');
   });
 
-  it('matches ISO codes only as uppercase tokens in the raw text', () => {
-    assert.equal(includesCountryCodeToken('Exports from IN surge on new deal', 'IN'), true);
-    assert.equal(includesCountryCodeToken('Prices rise in Europe as inflation cools', 'IN'), false, 'lowercase "in" must not match the IN code');
-    assert.equal(includesCountryCodeToken('US announces sanctions package', 'US'), true);
-    assert.equal(includesCountryCodeToken('tell us more about the plan', 'US'), false);
-    assert.equal(includesCountryCodeToken('INDIA expands exports', 'IN'), false, 'code token must not match inside a longer uppercase word');
+  it('matches bare ISO codes only for the allowlist, never for codes that are acronyms elsewhere', () => {
+    // US is the one code ordinary English news writes as a bare token.
+    assert.equal(matchesCountry('US announces sanctions package', countryBriefSearchTerms('US')), true);
+    assert.equal(matchesCountry('tell us more about the plan', countryBriefSearchTerms('US')), false);
+    // Every other bare code is someone else's acronym: the freeze published
+    // Australia's brief grounded on "African Union (AU)" (#7748).
+    assert.equal(matchesCountry('Sudanese forces reject AU backing for talks', countryBriefSearchTerms('AU')), false);
+    assert.equal(matchesCountry('Exports from IN surge on new deal', countryBriefSearchTerms('IN')), false);
+    assert.equal(matchesCountry('Prices rise in Europe as inflation cools', countryBriefSearchTerms('IN')), false, 'lowercase "in" must not match the IN code');
+    assert.equal(matchesCountry('INDIA expands exports', countryBriefSearchTerms('IN')), true, 'an all-caps headline still names the country');
+  });
+
+  it('reaches countries through aliases and demonyms the display name misses', () => {
+    assert.equal(matchesCountry('UK inflation cools', countryBriefSearchTerms('GB')), true);
+    assert.equal(matchesCountry('Ethiopian Airlines expands fleet', countryBriefSearchTerms('ET')), true);
+    assert.equal(matchesCountry('Myanmar junta extends emergency', countryBriefSearchTerms('MM')), true, 'ICU renders "Myanmar (Burma)", which no headline uses');
   });
 
   it('matchesCountry rejects the stopword-collision codes that over-matched shared briefs', () => {

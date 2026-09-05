@@ -2225,7 +2225,7 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
 
       assert.equal(counters.groqCalls, 1, 'anon context variations must share one cache entry');
       assert.equal(setKeys.length, 1, 'one shared cache write');
-      assert.ok(setKeys[0]?.startsWith('ci-sebuf:v6:IL:en:shared'), `anon key should use the shared v6 namespace, got ${setKeys[0]}`);
+      assert.ok(setKeys[0]?.startsWith('ci-sebuf:v7:IL:en:shared'), `anon key should use the shared v7 namespace, got ${setKeys[0]}`);
       assert.ok(setKeys[0]?.includes(':i2023'), `anon key should include the import data year, got ${setKeys[0]}`);
       assert.equal(alpha.brief, 'brief-1');
       assert.equal(beta.brief, 'brief-1', 'second anon caller must be served from cache');
@@ -2262,7 +2262,7 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
       assert.equal(counters.groqCalls, 2, 'different premium contexts should not share one cache entry');
       assert.equal(setKeys.length, 2, 'one cache write per unique premium context');
       assert.notEqual(setKeys[0], setKeys[1], 'context hash should differentiate premium cache keys');
-      assert.ok(setKeys[0]?.startsWith('ci-sebuf:v6:IL:'), 'cache key should use the v6 country-intel namespace');
+      assert.ok(setKeys[0]?.startsWith('ci-sebuf:v7:IL:'), 'cache key should use the v7 country-intel namespace');
       assert.ok(!setKeys[0]?.includes(':shared'), 'premium keys must not use the shared namespace');
       assert.equal(alpha.brief, 'brief-1');
       assert.equal(beta.brief, 'brief-2');
@@ -2327,7 +2327,7 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
 
       assert.equal(groqCalls, 1, 'blank context should reuse the shared cache entry');
       assert.equal(setKeys.length, 1);
-      assert.ok(setKeys[0]?.startsWith('ci-sebuf:v6:US:en:shared'), `anon callers land on the shared key, got ${setKeys[0]}`);
+      assert.ok(setKeys[0]?.startsWith('ci-sebuf:v7:US:en:shared'), `anon callers land on the shared key, got ${setKeys[0]}`);
       assert.ok(!userPrompts[0]?.includes('Context snapshot:'), 'prompt should omit context block when digest grounding is unavailable');
       assert.match(userPrompts[0], /Net energy import dependency: unavailable from audited sources\./);
       assert.equal(first.brief, 'base-brief');
