@@ -59,12 +59,17 @@ import {
 } from './crawlable-live-tools.mjs';
 import {
   briefTextLines,
+  developmentsHasDatedItem,
   isBriefBullet,
   isBriefOutlookRow,
   isBriefSectionHeader,
   normalizeFrozenDevelopments,
   stripBriefBullet,
 } from './crawlable-developments.mjs';
+
+// One predicate for the freeze's coverage counters and this build's
+// tripwire; re-exported so the corpus tests keep their import path.
+export { developmentsHasDatedItem };
 import {
   CHOKEPOINT_CONTENT,
   CHOKEPOINT_PAGE_CONTENT_PATH,
@@ -136,7 +141,9 @@ export const CHOKEPOINT_PAGE_LASTMOD_PATHS = Object.freeze([
 // families take the later of this version and their own committed source date,
 // so template changes are reflected without pretending every deploy is fresh.
 export const CORPUS_GENERATOR_CONTENT_VERSION = '2026-09-01';
-export const COUNTRY_PAGE_CONTENT_VERSION = '2026-09-03';
+// 2026-09-05: briefs render as structure, single-publisher briefs are
+// withheld, and the "WHAT THIS MEANS FOR" heading carries the name (#7748).
+export const COUNTRY_PAGE_CONTENT_VERSION = '2026-09-05';
 export const CII_COUNTRY_PAGE_CONTENT_VERSION = '2026-09-03';
 // Exported so the #7533 guard test can recompute every family clock without
 // re-implementing the version constants themselves.
@@ -661,7 +668,7 @@ function countryCiiDatasetDownload(country, ciiEntry, { capturedAt, snapshotPath
   });
 }
 
-function countriesIndexDatasetDownload(countries, { capturedAt, snapshotPath }) {
+function countriesIndexDatasetDownload(countries, { capturedAt, snapshotPath, developmentsByCode = null }) {
   return stableJson({
     dataset: 'country-resilience-ranking',
     capturedAt,
@@ -670,6 +677,9 @@ function countriesIndexDatasetDownload(countries, { capturedAt, snapshotPath }) 
     countries: countries.map((country) => ({
       code: country.code,
       name: country.name,
+      // Whether the country page carries a dated development (#7748): the
+      // enrichment tail is otherwise invisible to an agent reading the index.
+      ...(developmentsByCode ? { hasDevelopments: developmentsByCode.has(country.code) } : {}),
       rank: country.headlineEligible === false ? null : country.rank,
       overallScore: country.headlineEligible === false ? null : country.overallScore,
       dimensionCoverage: country.dimensionCoverage,
@@ -1645,6 +1655,11 @@ export async function loadCorpusData({ rootDir = DEFAULT_ROOT, livePulseSnapshot
   for (const country of countries) {
     const row = livePulse.countries[country.code];
     if (row && typeof row === 'object' && 'developments' in row) {
+      // Validate the committed shape before the rules run: a malformed brief
+      // (no sources, no citation) must red the build here, not be quietly
+      // withheld as thin grounding.
+      const brief = row.developments?.brief;
+      if (brief && typeof brief === 'object') assertDevelopmentsBrief(brief);
       row.developments = normalizeFrozenDevelopments(row.developments, {
         countryCode: country.code,
         countryName: country.name,
@@ -3036,7 +3051,7 @@ export function renderCountryDevelopments({
   if (rawRows?.brief && typeof rawRows.brief === 'object') assertDevelopmentsBrief(rawRows.brief);
   // Publish rules (#7738, #7748): markdown emphasis stripped, model preamble
   // dropped, the ISO-code heading repaired to the country name, and briefs
-  // grounded on fewer than MIN_BRIEF_GROUNDING_SOURCES withheld. loadCorpusData
+  // grounded on fewer than MIN_BRIEF_GROUNDING_PUBLISHERS withheld. loadCorpusData
   // already applied them to the committed snapshot; this call is idempotent
   // so direct callers get the same page.
   const rows = rawRows
@@ -3212,17 +3227,6 @@ export function newestDevelopmentsInstant(developments) {
   }
   instants.sort();
   return instants.length > 0 ? instants.at(-1) : null;
-}
-
-// True when the frozen developments carry at least one dated,
-// sourced, country-specific item: a headline, a brief with text, or a
-// timeline event. The dated-absence note (data-developments-empty) does not
-// count — it is a marker, not an item.
-export function developmentsHasDatedItem(developments) {
-  if (!developments || typeof developments !== 'object') return false;
-  if (Array.isArray(developments.headlines) && developments.headlines.length > 0) return true;
-  if (developments.brief && typeof developments.brief.text === 'string' && developments.brief.text.trim()) return true;
-  return Array.isArray(developments.timeline) && developments.timeline.length > 0;
 }
 
 // Durable guard (#7615): the enrichment must be permanent, not a one-off
@@ -3571,15 +3575,27 @@ ${analysis.readingGuide ? `      <h2>How to use this evidence</h2>
 // text, and the first round shipped literal `**` markdown on 7 of 11 sampled
 // briefs plus "WHAT THIS MEANS FOR NO" headings. Both are cheap string checks
 // on the rendered <main>, and both would have caught the defect before deploy.
+//
+// The leak is a heading that ENDS in a bare two-letter token after FOR.
+// Anchored to the end on purpose: "WHAT THIS MEANS FOR EL SALVADOR" starts
+// its name with two letters and must pass. UK/EU/UN are English initialisms
+// a brief legitimately writes, not ISO codes the server interpolated.
+const BARE_CODE_HEADING_LEAK_RE = /\bFOR ([A-Z]{2})\s*:?$/;
+const HEADING_INITIALISM_ALLOWLIST = new Set(['UK', 'EU', 'UN']);
+
 export function assertCountryPagePresentation({ pagePath, html }) {
   const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? html;
-  if (main.includes('**')) {
-    throw new Error(`${pagePath} renders literal markdown emphasis (**) inside <main>`);
+  // Rendered text only: a marker inside an href is not what a reader sees.
+  const mainText = main.replace(/<[^>]+>/g, '');
+  const marker = mainText.match(/\*\*|__/);
+  if (marker) {
+    throw new Error(`${pagePath} renders literal markdown emphasis (${marker[0]}) inside <main>`);
   }
   for (const match of main.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/g)) {
-    const heading = match[1].replace(/<[^>]+>/g, '');
-    if (/\bFOR [A-Z]{2}\b/.test(heading)) {
-      throw new Error(`${pagePath} leaks an ISO code into a heading: ${heading.trim()}`);
+    const heading = match[1].replace(/<[^>]+>/g, '').trim();
+    const leak = heading.match(BARE_CODE_HEADING_LEAK_RE);
+    if (leak && !HEADING_INITIALISM_ALLOWLIST.has(leak[1])) {
+      throw new Error(`${pagePath} leaks an ISO code into a heading: ${heading}`);
     }
   }
 }
@@ -5002,6 +5018,11 @@ export async function buildCorpus({
     countriesIndexDatasetDownload(data.countries, {
       capturedAt: data.resilience.capturedAt,
       snapshotPath: data.sources.resilienceSnapshot,
+      developmentsByCode: new Set(
+        data.countries
+          .filter((country) => developmentsHasDatedItem(data.livePulse?.countries?.[country.code]?.developments))
+          .map((country) => country.code),
+      ),
     }),
   );
   const rankedCount = data.countries.filter((country) => country.rank != null).length;

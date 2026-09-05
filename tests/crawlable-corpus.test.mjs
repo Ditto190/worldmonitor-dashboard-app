@@ -5393,14 +5393,55 @@ describe('country recent developments', () => {
     assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><h2>Recent developments in Norway</h2><p>ok</p></main>' });
     assert.throws(
       () => assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><p>• **NBIM**: sells</p></main>' }),
-      /renders literal markdown emphasis/,
+      /renders literal markdown emphasis \(\*\*\)/,
     );
+    assert.throws(
+      () => assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><p>__NBIM__ sells</p></main>' }),
+      /renders literal markdown emphasis \(__\)/,
+      'the guard is not pinned to the one marker the first audit happened to see',
+    );
+    // Markup attributes are not rendered text: a double underscore in an href is fine.
+    assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><a href="https://example.test/a__b">link</a></main>' });
     assert.throws(
       () => assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><h4>WHAT THIS MEANS FOR NO</h4></main>' }),
       /leaks an ISO code into a heading: WHAT THIS MEANS FOR NO/,
     );
+    assert.throws(
+      () => assertCountryPagePresentation({ pagePath: '/countries/spain/', html: '<main><h4>WHAT THIS MEANS FOR ES:</h4></main>' }),
+      /leaks an ISO code into a heading/,
+      'a trailing colon does not hide the bare code',
+    );
+    // A name whose first word is two letters is not a leak; neither is an
+    // English initialism the model legitimately writes.
+    assertCountryPagePresentation({ pagePath: '/countries/el-salvador/', html: '<main><h4>WHAT THIS MEANS FOR EL SALVADOR</h4></main>' });
+    assertCountryPagePresentation({ pagePath: '/countries/united-kingdom/', html: '<main><h4>WHAT THIS MEANS FOR UK</h4></main>' });
     // Only <main> is judged: a `**` in a <script> payload is not page text.
     assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<script>"**"</script><main><p>ok</p></main>' });
+  });
+
+  it('fails the build on a malformed committed brief instead of withholding it', async () => {
+    const fixturePath = join(repoRoot, 'tests/fixtures/crawlable-live-pulse-fixture.json');
+    const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    const today = new Date().toISOString().slice(0, 10);
+    const deltaDays = Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${fixture.capturedAt}T00:00:00Z`)) / 86_400_000,
+    );
+    const shifted = shiftLivePulseDates(fixture, deltaDays);
+    const withBrief = Object.entries(shifted.countries).find(([, row]) => row.developments?.brief);
+    assert.ok(withBrief, 'the fixture carries at least one brief');
+    withBrief[1].developments.brief.sources = [];
+    const dir = mkdtempSync(join(tmpdir(), 'wm-pulse-malformed-'));
+    const snapshotPath = join(dir, `crawlable-live-pulse-${today}.json`);
+    writeFileSync(snapshotPath, JSON.stringify(shifted));
+    try {
+      await assert.rejects(
+        loadCorpusData({ rootDir: repoRoot, livePulseSnapshotPath: snapshotPath }),
+        /brief carries no grounding sources/,
+        'load-time normalization must not hide a malformed brief behind thin-grounding',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('applies the publish rules to the committed snapshot at load time', async () => {

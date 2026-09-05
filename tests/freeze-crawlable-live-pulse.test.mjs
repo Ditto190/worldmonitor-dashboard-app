@@ -8,7 +8,6 @@ import {
   authedGet,
   buildBriefContext,
   COUNTRY_DIGEST_VARIANTS,
-  countryDisplayName,
   freezeCrawlableLivePulse,
   minimumBriefCaptures,
   mintSession,
@@ -187,6 +186,8 @@ function countryPayload() {
     digestCoverage = { state: 'complete', servedStale: false },
     // Per-variant digest items; variants absent here serve `digestItems`.
     digestItemsByVariant = null,
+    // Variants whose fetch fails with a 503.
+    digestFailVariants = [],
     briefStatus = 'ok',
     briefOverrides = {},
     briefFailCodes = [],
@@ -224,6 +225,7 @@ function countryPayload() {
       }
       if (href.includes('list-feed-digest')) {
         const variant = new URL(href).searchParams.get('variant') || 'full';
+        if (digestFailVariants.includes(variant)) return { ok: false, status: 503, text: async () => '{}' };
         const items = digestItemsByVariant && Object.hasOwn(digestItemsByVariant, variant)
           ? digestItemsByVariant[variant]
           : digestItems;
@@ -606,13 +608,6 @@ describe('freeze per-country developments selection', () => {
     };
   }
 
-  it('resolves display names for matching and rejects unknown codes', () => {
-    assert.equal(countryDisplayName('NO'), 'Norway');
-    assert.equal(countryDisplayName('no'), 'Norway');
-    assert.equal(countryDisplayName('XX'), '');
-    assert.equal(countryDisplayName(''), '');
-  });
-
   it('matches display names on word boundaries in title and snippet', () => {
     const items = [
       countryItem('Norway opens new arctic port'),
@@ -706,8 +701,9 @@ describe('freeze per-country developments capture', () => {
         publishedAt: Date.now() - 3600_000,
         importanceScore: 80,
       },
-      // A second Sudan row: briefs need MIN_BRIEF_GROUNDING_SOURCES (#7748).
-      // Matched by demonym, which the old name-or-code matcher never saw.
+      // A second Sudan row from a second publisher: briefs need
+      // MIN_BRIEF_GROUNDING_PUBLISHERS distinct outlets (#7748). Matched by
+      // demonym, which the old name-or-code matcher never saw.
       {
         title: 'Sudanese negotiators return to Jeddah',
         source: 'Test Wire',
@@ -726,7 +722,7 @@ describe('freeze per-country developments capture', () => {
       },
       {
         title: 'Oslo fund trims holdings',
-        source: 'Test Wire',
+        source: 'Nordic Wire',
         link: 'https://example.test/norway-fund',
         snippet: 'Norway wealth fund rebalances.',
         publishedAt: Date.now() - 7300_000,
@@ -839,9 +835,11 @@ describe('freeze per-country developments capture', () => {
     assert.equal(snapshot.countries.BT.developments.briefSkipped, 'no-grounding');
   });
 
-  it('keeps the headline but skips the brief on a single grounding source', async () => {
+  it('keeps the headlines but skips the brief on a single publisher', async () => {
     // Bhutan and Nauru shipped 24/48/72h forecasts off one article (#7748
-    // item 3). One headline is a dated development; it is not a brief.
+    // item 3), and Egypt's cleared a raw source count on three articles from
+    // one newsroom. Two headlines from one outlet are dated developments;
+    // they are not a brief.
     const requested = [];
     stubFetch({
       digestItems: [
@@ -854,12 +852,20 @@ describe('freeze per-country developments capture', () => {
           publishedAt: Date.now() - 3600_000,
           importanceScore: 60,
         },
+        {
+          title: 'Bhutan tightens monetary policy',
+          source: 'Test Wire',
+          link: 'https://example.test/bhutan-rates',
+          snippet: '',
+          publishedAt: Date.now() - 3700_000,
+          importanceScore: 55,
+        },
       ],
       onRequest: (href) => requested.push(href),
     });
     const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
     const bhutan = snapshot.countries.BT.developments;
-    assert.equal(bhutan.headlines.length, 1);
+    assert.equal(bhutan.headlines.length, 2);
     assert.equal(bhutan.brief, null);
     assert.equal(bhutan.briefSkipped, 'thin-grounding');
     assert.ok(!requested.some((href) => href.includes('get-country-intel-brief?country_code=BT')),
@@ -894,7 +900,7 @@ describe('freeze per-country developments capture', () => {
           },
           {
             title: 'Thimphu bank raises rates',
-            source: 'Test Wire',
+            source: 'Himalayan Wire',
             link: 'https://example.test/bhutan-rates',
             snippet: 'Bhutan tightens policy.',
             publishedAt: Date.now() - 3700_000,
@@ -944,8 +950,80 @@ describe('freeze per-country developments capture', () => {
     assert.ok(text.startsWith('SITUATION NOW\n'), `preamble must not be frozen, got: ${text.slice(0, 40)}`);
     assert.ok(!text.includes('**'));
     assert.ok(!text.includes('CONFIDENTIAL'));
-    assert.ok(text.includes('WHAT THIS MEANS FOR SUDAN'));
+    // The coded heading is the corpus build's to repair with the page's own
+    // display name; the freeze has no source for "DR Congo"-style names.
+    assert.ok(text.includes('WHAT THIS MEANS FOR SD'));
     assert.ok(text.includes('• Port Sudan: closed to traffic [2].'));
+  });
+
+  it('records a failed sibling digest variant as a state and keeps the strip and the gate intact', async () => {
+    const requested = [];
+    stubFetch({
+      digestItemsByVariant: { full: countryDigestItems() },
+      digestFailVariants: ['tech'],
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(snapshot.coverage.developmentsDigestVariants.tech, 'error');
+    assert.equal(snapshot.coverage.developmentsDigestVariants.full, 'complete');
+    assert.equal(snapshot.coverage.headlineErrorCount, 0, 'the strip reads `full` only');
+    assert.equal(snapshot.headlines.length, 4);
+    assert.ok(snapshot.errors.developments.some((entry) => entry.stage === 'digest' && entry.message.startsWith('tech:')));
+    // Country rows still come from the surviving variants and briefs still capture.
+    assert.equal(snapshot.countries.SD.developments.headlines.length, 2);
+    assert.ok(snapshot.countries.SD.developments.brief);
+    // The variant error sits after the per-country errors so a brief collapse
+    // is blamed on the brief, never on the sibling hiccup.
+    stubFetch({ digestItemsByVariant: { full: countryDigestItems() }, digestFailVariants: ['tech'], briefStatus: 'fail' });
+    await assert.rejects(
+      runFreeze({ serviceKey: 'test-key' }),
+      (error) => /captured briefs for 0 of 2/.test(error.message) && !/tech:/.test(error.message),
+      'the thrown cause must be the brief failure, not the digest variant',
+    );
+  });
+
+  it('empties the strip but keeps the country pool when only `full` fails', async () => {
+    stubFetch({
+      digestItemsByVariant: { tech: countryDigestItems() },
+      digestFailVariants: ['full'],
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(snapshot.headlines.length, 0);
+    assert.equal(snapshot.coverage.headlineErrorCount, 1);
+    assert.equal(snapshot.coverage.developmentsDigestVariants.full, 'error');
+    assert.equal(snapshot.countries.SD.developments.headlines.length, 2, 'country matching pools the surviving variants');
+  });
+
+  it('keeps a brief withheld after the response inside the capture gate', async () => {
+    // The server echoes one source where the freeze sent two: normalization
+    // withholds the brief, the attempt stays in the gate's denominator, and
+    // the withholding is a recorded capture error rather than a silent skip.
+    stubFetch({
+      digestItems: countryDigestItems(),
+      briefOverrides: {
+        SD: { sources: [{ title: 'Sudan aid convoy reaches Darfur amid talks', source: 'UN News', url: 'https://news.un.org/feed/view/en/story/2026/09/1168270', publishedAt: new Date().toISOString() }] },
+      },
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(snapshot.countries.SD.developments.brief, null);
+    assert.equal(snapshot.countries.SD.developments.briefSkipped, 'thin-grounding');
+    assert.equal(snapshot.coverage.briefMatchedCount, 2, 'the withheld attempt is still a requested brief');
+    assert.equal(snapshot.coverage.briefThinGroundingCount, 0, 'Sudan had enough headlines to request; it is not pre-request thin');
+    assert.ok(snapshot.errors.developments.some((entry) => (
+      entry.code === 'SD' && entry.stage === 'brief' && entry.message.includes('publish floor withholds')
+    )));
+    // With every attempted brief withheld the gate must fire, not be skipped.
+    stubFetch({
+      digestItems: countryDigestItems(),
+      briefOverrides: {
+        SD: { sources: [{ title: 'Sudan aid convoy reaches Darfur amid talks', source: 'UN News', url: 'https://news.un.org/feed/view/en/story/2026/09/1168270', publishedAt: new Date().toISOString() }] },
+        NO: { sources: [{ title: 'Norway opens new arctic port', source: 'Test Wire', url: 'https://example.test/norway-port', publishedAt: new Date().toISOString() }] },
+      },
+    });
+    await assert.rejects(
+      runFreeze({ serviceKey: 'test-key' }),
+      /captured briefs for 0 of 2 headline-matched countries/,
+    );
   });
 
   it('rejects a headline title carrying markdown emphasis', async () => {
@@ -1055,8 +1133,9 @@ describe('freeze per-country developments capture', () => {
     )));
   });
 
-  // Two rows per country: a single headline is thin grounding and gets no
-  // brief attempt (MIN_BRIEF_GROUNDING_SOURCES), so it never enters the gate.
+  // Two rows from two publishers per country: a single outlet is thin
+  // grounding and gets no brief attempt (MIN_BRIEF_GROUNDING_PUBLISHERS), so
+  // it never enters the gate.
   function manyGroundedItems() {
     return ['Sudan', 'Norway', 'Romania', 'Brazil', 'Bhutan', 'Palau', 'Andorra'].flatMap((name, index) => [
       {
@@ -1068,7 +1147,7 @@ describe('freeze per-country developments capture', () => {
       },
       {
         title: `${name} follow-up ${index}`,
-        source: 'Test Wire',
+        source: 'Second Wire',
         link: `https://example.test/c-${index}-b`,
         publishedAt: Date.now() - 3700_000,
         importanceScore: 45,
@@ -1092,6 +1171,8 @@ describe('freeze per-country developments capture', () => {
     stubFetch({ digestItems: many, briefFailCodes: ['SD'] });
     const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
     assert.equal(snapshot.coverage.briefCountryCount, 6);
+    assert.equal(snapshot.countries.SD.developments.briefSkipped, 'failed',
+      'a failed request is a named state, like timelineStatus, not a null that reads as captured');
     // 7 matched, 6 failures: below minBriefs (7-5=2), freeze rejects.
     stubFetch({ digestItems: many, briefFailCodes: ['SD', 'NO', 'RO', 'BR', 'BT', 'PW'] });
     await assert.rejects(

@@ -2188,6 +2188,43 @@ describe('country intel brief caching behavior', { concurrency: 1 }, () => {
     }
   });
 
+  it('names every country in the prompt, not only the tier-1 table', async () => {
+    // Non-tier-1 countries got the bare ISO code as their name, which is
+    // where "WHAT THIS MEANS FOR NO" and "TG is a net energy-independent
+    // nation" came from on prerendered country pages (#7738).
+    const { module, cleanup } = await importCountryIntelBrief();
+    const restoreEnv = withEnv(INTEL_TEST_ENV);
+    const originalFetch = globalThis.fetch;
+    const store = new Map();
+    store.set('news:digest:v1:full:en', JSON.stringify({
+      categories: {
+        world: {
+          items: [
+            { title: 'Norway opens new arctic port', source: 'Reuters', link: 'https://example.com/no-port', pubDate: '2026-07-05T06:00:00.000Z' },
+          ],
+        },
+      },
+    }));
+    const setKeys = [];
+    const userPrompts = [];
+    const counters = { groqCalls: 0 };
+    installIntelFetchMock({ store, setKeys, userPrompts, counters });
+
+    try {
+      const out = await module.getCountryIntelBrief(
+        makeCtx('https://example.com/api/intelligence/v1/get-country-intel-brief?country_code=NO'),
+        { countryCode: 'NO' },
+      );
+      assert.equal(out.countryName, 'Norway');
+      assert.match(userPrompts[0], /Country: Norway \(NO\)/, 'the prompt must carry the display name, not the code');
+      assert.doesNotMatch(userPrompts[0], /Country: NO \(NO\)/);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+      await cleanup?.();
+    }
+  });
+
   it('anon callers share one digest-grounded cache entry regardless of client context', async () => {
     const { module, cleanup } = await importCountryIntelBrief();
     const restoreEnv = withEnv(INTEL_TEST_ENV);

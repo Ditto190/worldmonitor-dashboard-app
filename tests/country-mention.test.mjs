@@ -76,7 +76,12 @@ describe('country mention matcher', () => {
     assert.equal(mentions('SD', 'Sudan and South Sudan reopen border'), true, 'a genuine Sudan mention survives the exclusion');
     assert.equal(mentions('GN', 'Papua New Guinea quake kills dozens'), false);
     assert.equal(mentions('GN', 'Equatorial Guinea oil output falls'), false);
+    assert.equal(mentions('GN', 'Guinea-Bissau coup attempt foiled'), false, 'the hyphenated spelling is scrubbed too');
+    assert.equal(mentions('GW', 'Guinea-Bissau coup attempt foiled'), true);
     assert.equal(mentions('GN', 'Guinea junta sets election date'), true);
+    assert.equal(mentions('KR', "Democratic People's Republic of Korea tests missile"), false, '"republic of korea" sits inside the DPRK name');
+    assert.equal(mentions('KP', "Democratic People's Republic of Korea tests missile"), true);
+    assert.equal(mentions('KR', 'Republic of Korea hosts summit'), true);
     assert.equal(mentions('PG', 'Papua New Guinea quake kills dozens'), true);
     assert.equal(mentions('IE', 'Northern Ireland assembly returns'), false);
     assert.equal(mentions('IE', 'Northern Irish parties resume talks'), false, 'the exclusion covers the demonym path too');
@@ -85,6 +90,15 @@ describe('country mention matcher', () => {
     assert.equal(mentions('SS', 'South Sudanese forces regroup near Juba'), true);
     assert.equal(mentions('MX', 'New Mexico wildfire spreads'), false);
     assert.equal(mentions('WS', 'American Samoa storm damage'), false);
+    assert.equal(mentions('IN', 'Indian Ocean tsunami warning lifted'), false);
+    assert.equal(mentions('FR', 'French Open final draws record crowd'), false);
+    assert.equal(mentions('GB', 'British Columbia wildfires spread'), false);
+    assert.equal(mentions('NL', 'Holland America cruise rerouted'), false);
+    assert.equal(mentions('FR', 'French regulator opens inquiry'), true);
+    assert.equal(mentions('CG', 'Democratic Republic of the Congo election delayed'), false, '"republic of the congo" sits inside the DRC name');
+    assert.equal(mentions('CD', 'Democratic Republic of the Congo election delayed'), true);
+    assert.equal(mentions('CG', 'Republic of the Congo election delayed'), true);
+    assert.equal(mentions('CG', 'Brazzaville and Kinshasa: the two Congos'), false, 'bare "Congo" belongs to neither');
   });
 
   it('keeps Niger and Nigeria apart', () => {

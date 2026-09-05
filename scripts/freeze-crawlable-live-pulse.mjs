@@ -31,14 +31,12 @@ import {
 } from './crawlable-live-tools.mjs';
 import { loadEnvFile } from './_seed-utils.mjs';
 import {
-  MIN_BRIEF_GROUNDING_SOURCES,
+  developmentsHasDatedItem,
+  hasBriefGrounding,
+  MIN_BRIEF_GROUNDING_PUBLISHERS,
   normalizeFrozenDevelopments,
 } from './crawlable-developments.mjs';
-import {
-  countryDisplayName,
-  countryMentionTerms,
-  mentionsCountry,
-} from '../shared/country-mention.js';
+import { countryMentionTerms, mentionsCountry } from '../shared/country-mention.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -367,16 +365,7 @@ async function resolveLatestResilienceSnapshot() {
   const codes = rows
     .map((row) => String(row?.code || row?.countryCode || '').toUpperCase())
     .filter((code) => /^[A-Z]{2}$/.test(code));
-  // The corpus headings use the resilience snapshot's country name, so the
-  // frozen brief heading repair (#7738) must use the same one — Intl renders
-  // "Congo - Kinshasa" where the page says "DR Congo".
-  const namesByCode = new Map();
-  for (const row of rows) {
-    const code = String(row?.code || row?.countryCode || '').toUpperCase();
-    const name = String(row?.name || row?.countryName || '').trim();
-    if (/^[A-Z]{2}$/.test(code) && name && !namesByCode.has(code)) namesByCode.set(code, name);
-  }
-  return { relativePath, codes: [...new Set(codes)].sort(), namesByCode };
+  return { relativePath, codes: [...new Set(codes)].sort() };
 }
 
 async function loadCrises() {
@@ -535,6 +524,16 @@ function timelineRecord(record) {
   };
 }
 
+// `briefSkipped` states, published as-is in the corpus dataset download:
+//   null              a brief was requested and captured
+//   'no-service-key'  keyless run; tier-gated routes not attempted
+//   'no-grounding'    no digest headline named the country
+//   'thin-grounding'  fewer than MIN_BRIEF_GROUNDING_PUBLISHERS distinct
+//                     publishers behind the headlines (or the returned
+//                     sources), so no forecast is published
+//   'empty'           the route answered with no brief text (LLM outage)
+//   'failed'          the request itself failed; see errors.developments
+// The timeline sibling uses timelineStatus the same way.
 function emptyDevelopments(freezeStartedAt, briefSkipped) {
   return {
     headlines: [],
@@ -544,17 +543,6 @@ function emptyDevelopments(freezeStartedAt, briefSkipped) {
     briefSkipped,
     capturedAt: new Date(freezeStartedAt).toISOString(),
   };
-}
-
-// Same predicate as developmentsHasDatedItem in build-crawlable-corpus.mjs:
-// a row counts as enriched when it carries a dated headline, a brief, or a
-// timeline event. Kept local because the build imports TypeScript the freeze
-// cannot load.
-function developmentsHasDatedItem(developments) {
-  if (!developments || typeof developments !== 'object') return false;
-  if (Array.isArray(developments.headlines) && developments.headlines.length > 0) return true;
-  if (developments.brief && typeof developments.brief.text === 'string' && developments.brief.text.trim()) return true;
-  return Array.isArray(developments.timeline) && developments.timeline.length > 0;
 }
 
 // Reduce a ListFeedDigest response to the publishable headline rows.
@@ -741,7 +729,7 @@ export async function freezeCrawlableLivePulse({
   const keyed = serviceKey.trim().length > 0;
   const token = keyed ? '' : await mintSession(base);
   const authOpts = keyed ? { serviceKey } : {};
-  const { relativePath: resilienceSnapshotPath, codes, namesByCode } = await resolveLatestResilienceSnapshot();
+  const { relativePath: resilienceSnapshotPath, codes } = await resolveLatestResilienceSnapshot();
   const crises = await loadCrises();
   const chokepointIds = await loadChokepointIds();
 
@@ -861,7 +849,10 @@ export async function freezeCrawlableLivePulse({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // The strip is only ever the `full` digest; a failed sibling variant
-      // narrows the country pool and is recorded with the developments.
+      // narrows the country pool and is recorded with the developments. The
+      // state is a value, not a missing key, so an artifact reader can tell
+      // "fetch failed" from "fetched, state unreported".
+      digestVariantStates[variant] = 'error';
       if (variant === 'full') headlineErrors.push({ id: '*', message });
       digestVariantErrors.push({ code: '*', stage: 'digest', message: `${variant}: ${message}` });
     }
@@ -921,9 +912,13 @@ export async function freezeCrawlableLivePulse({
   // they run only with a service key. Briefs additionally require grounding:
   // an ungrounded brief is energy-data prose with no events, which is the
   // defect this enrichment removes rather than replicates — and a brief off a
-  // single headline is a multi-horizon forecast from one source, so the floor
-  // is MIN_BRIEF_GROUNDING_SOURCES (#7748).
-  const developmentsErrors = [...digestVariantErrors];
+  // single outlet is a multi-horizon forecast from one source, so the floor
+  // is MIN_BRIEF_GROUNDING_PUBLISHERS distinct publishers (#7748).
+  // Brief and timeline errors first: firstCaptureCause reads errors[0] into
+  // the gate's thrown message, and a sibling digest hiccup must not be named
+  // as the cause of a brief collapse. Variant errors are appended after the
+  // loop.
+  const developmentsErrors = [];
   const headlinesByCode = new Map();
   for (const code of Object.keys(countries)) {
     headlinesByCode.set(code, selectCountryHeadlines(digestItems, code, COUNTRY_HEADLINE_LIMIT));
@@ -940,13 +935,19 @@ export async function freezeCrawlableLivePulse({
     if (url) digestUrls.add(url);
   }
   const timelineFrom = freezeStartedAt - COUNTRY_TIMELINE_WINDOW_MS;
+  // Countries a brief was requested for. The brief gate divides by this set,
+  // taken at request time: a brief the server returned and normalization then
+  // withheld must stay in the denominator (and be recorded as an error), or a
+  // server that starts returning one source per brief would empty the
+  // denominator and pass the gate with zero briefs.
+  const briefAttemptedCodes = new Set();
   for (const code of Object.keys(countries)) {
     const countryHeadlines = headlinesByCode.get(code) || [];
     const briefSkipped = !keyed
       ? 'no-service-key'
       : countryHeadlines.length === 0
         ? 'no-grounding'
-        : countryHeadlines.length < MIN_BRIEF_GROUNDING_SOURCES
+        : !hasBriefGrounding(countryHeadlines)
           ? 'thin-grounding'
           : null;
     const developments = {
@@ -954,6 +955,7 @@ export async function freezeCrawlableLivePulse({
       headlines: countryHeadlines,
     };
     if (briefSkipped === null) {
+      briefAttemptedCodes.add(code);
       try {
         const context = buildBriefContext(countryHeadlines);
         const briefPayload = await authedGet(
@@ -966,9 +968,11 @@ export async function freezeCrawlableLivePulse({
         if (brief) {
           developments.brief = brief;
         } else {
+          developments.briefSkipped = 'empty';
           developmentsErrors.push({ code, stage: 'brief', message: 'response carried no publishable brief text' });
         }
       } catch (error) {
+        developments.briefSkipped = 'failed';
         developmentsErrors.push({ code, stage: 'brief', message: error instanceof Error ? error.message : String(error) });
       }
       await sleep(requestGapMs);
@@ -1008,14 +1012,25 @@ export async function freezeCrawlableLivePulse({
       }
       await sleep(requestGapMs);
     }
-    // Publish-time shape rules applied at capture so the committed JSON (and
-    // its dataset download) carries the text the page shows: no markdown
-    // emphasis, no model preamble, the country name in the brief heading.
-    countries[code].developments = normalizeFrozenDevelopments(developments, {
-      countryCode: code,
-      countryName: namesByCode.get(code) || countryDisplayName(code),
-    });
+    // Publish-time shape rules applied at capture so the committed JSON
+    // carries the text the page shows: no markdown markers, no model
+    // preamble, the publisher floor. The "WHAT THIS MEANS FOR <CODE>" heading
+    // is deliberately left for the corpus build to repair, because the name a
+    // page uses ("DR Congo") comes from the build's own display table, not
+    // from any source the freeze can read; the server no longer emits the
+    // bare code for new briefs (#7738).
+    const normalized = normalizeFrozenDevelopments(developments, { countryCode: code });
+    if (developments.brief && !normalized.brief) {
+      developmentsErrors.push({
+        code,
+        stage: 'brief',
+        message: `response carried ${developments.brief.sources.length} grounding source(s) from fewer than `
+          + `${MIN_BRIEF_GROUNDING_PUBLISHERS} distinct publishers; the publish floor withholds it`,
+      });
+    }
+    countries[code].developments = normalized;
   }
+  developmentsErrors.push(...digestVariantErrors);
 
   const geoLeaders = Object.entries(countries)
     .filter(([, row]) => Number.isFinite(row.geoConvergence) && row.geoConvergence > 0)
@@ -1062,13 +1077,15 @@ export async function freezeCrawlableLivePulse({
         .filter((row) => (row.developments?.headlines?.length || 0) > 0).length,
       briefCountryCount: Object.values(countries)
         .filter((row) => row.developments?.brief != null).length,
-      // Countries owed a brief attempt: keyed, and grounded on at least
-      // MIN_BRIEF_GROUNDING_SOURCES headlines. The gate below is measured
-      // against this, not against every headline-matched country.
-      briefMatchedCount: Object.values(countries)
-        .filter((row) => row.developments?.briefSkipped === null).length,
+      // Countries a brief was requested for: keyed, and grounded on at least
+      // MIN_BRIEF_GROUNDING_PUBLISHERS distinct publishers. The gate below is
+      // measured against this request-time set, so a brief withheld after the
+      // response still counts against the capture.
+      briefMatchedCount: briefAttemptedCodes.size,
+      // Countries whose grounding was too thin to request a brief at all.
       briefThinGroundingCount: Object.values(countries)
-        .filter((row) => row.developments?.briefSkipped === 'thin-grounding').length,
+        .filter((row) => row.developments?.briefSkipped === 'thin-grounding'
+          && !hasBriefGrounding(row.developments?.headlines)).length,
       timelineCountryCount: Object.values(countries)
         .filter((row) => (row.developments?.timeline?.length || 0) > 0).length,
       // The enrichment tail (#7748): indexed pages with no dated item at all.
@@ -1245,7 +1262,6 @@ export {
   authedGet,
   selectCountryHeadlines,
   buildBriefContext,
-  countryDisplayName,
   COUNTRY_DIGEST_VARIANTS,
   normalizeHttpsUrl,
   timelineRecord,

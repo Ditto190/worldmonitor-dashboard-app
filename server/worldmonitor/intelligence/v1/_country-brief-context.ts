@@ -16,11 +16,7 @@
 import { getCachedJson } from '../../../_shared/redis';
 import { filterRevokedUrls, readRevokedUrlSet } from '../../../_shared/digest-revocations';
 import { sanitizeForPromptLine } from '../../../_shared/llm-sanitize.js';
-import {
-  countryMentionTerms,
-  mentionsCountry,
-  type CountryMentionTerms,
-} from '../../../../shared/country-mention.js';
+import { countryMentionTerms, mentionsCountry } from '../../../../shared/country-mention.js';
 
 const DIGEST_KEY_EN = 'news:digest:v1:full:en';
 const MAX_GROUNDING_ITEMS = 15;
@@ -123,24 +119,6 @@ function normalizeDate(value: unknown): string {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : '';
 }
 
-/**
- * Country matching is the shared matcher (shared/country-mention.js): display
- * names, aliases and demonyms on word boundaries, bare ISO codes only for the
- * allowlist. The local copy this replaced matched every uppercase code token,
- * which was safe for "US announces…" and wrong for "African Union (AU)",
- * "2pm ET" or "CM Maryam" — the same defect the corpus freeze published
- * (#7748). Kept as named exports so the handler and its tests keep one name.
- */
-export type CountryMatchTerms = CountryMentionTerms;
-
-export function countryBriefSearchTerms(countryCode: string): CountryMatchTerms {
-  return countryMentionTerms(countryCode);
-}
-
-export function matchesCountry(rawText: string, terms: CountryMatchTerms): boolean {
-  return mentionsCountry(rawText, terms);
-}
-
 function collectBriefSources(items: DigestItemForBrief[], maxSources = MAX_SOURCES): SharedBriefSource[] {
   const out: SharedBriefSource[] = [];
   const seen = new Set<string>();
@@ -179,12 +157,16 @@ export function buildSharedCountryContext(
   );
   if (allItems.length === 0) return EMPTY_CONTEXT;
 
-  const terms = countryBriefSearchTerms(countryCode);
-  // Raw text, NOT lowercased — the uppercase-token code match depends on the
-  // original casing surviving to this point.
+  // Country matching is the shared matcher (shared/country-mention.js):
+  // display names, aliases and case-sensitive demonyms, bare ISO codes only
+  // for the allowlist. The local copy this replaced matched every uppercase
+  // code token, which was safe for "US announces…" and wrong for "African
+  // Union (AU)", "2pm ET" or "CM Maryam" — the defect the corpus freeze
+  // published (#7748). Raw text, NOT lowercased: demonyms are case-sensitive.
+  const terms = countryMentionTerms(countryCode);
   const countryItems = allItems.filter((item) => {
     const text = `${typeof item.title === 'string' ? item.title : ''} ${typeof item.snippet === 'string' ? item.snippet : ''}`;
-    return matchesCountry(text, terms);
+    return mentionsCountry(text, terms);
   });
 
   // No country match → ground on the top global items instead. A generic
