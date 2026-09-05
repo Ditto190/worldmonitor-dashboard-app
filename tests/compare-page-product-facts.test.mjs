@@ -10,11 +10,11 @@ import { dirname, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { CHOKEPOINT_REGISTRY } from '../src/config/chokepoint-registry.ts';
 import {
   COMPARISON_HUB_MATRIX_ROWS,
   COMPARISON_MATRIX_COLUMNS,
   COMPARISON_PAGES,
-  WORLD_MONITOR_CHOKEPOINT_COUNT,
   __test,
 } from '../scripts/build-comparison-pages.mjs';
 import { computeStats } from '../scripts/docs-stats.mjs';
@@ -24,10 +24,10 @@ const read = (relativePath) => readFileSync(join(repoRoot, relativePath), 'utf8'
 const SOURCE_COUNT_COLUMN = COMPARISON_MATRIX_COLUMNS.indexOf('Source count & licensing');
 const PROVIDER_CLAIM_RE = /(\d[\d,]*)\s+(?:active providers|attributed(?: public)? providers)\b/gi;
 const INVENTORY_CLAIMS = [
-  { re: /(\d[\d,]*)\s+active providers\b/gi, valueOf: (stats) => stats.sourceAttribution.providerCount, label: 'active providers' },
-  { re: /(\d[\d,]*)\s+attributed(?: public)? providers\b/gi, valueOf: (stats) => stats.sourceAttribution.providerCount, label: 'attributed providers' },
-  { re: /(\d[\d,]*)\s+chokepoints fused\b/gi, valueOf: () => WORLD_MONITOR_CHOKEPOINT_COUNT, label: 'fused chokepoints' },
-  { re: /(\d[\d,]*)\s+maritime chokepoints\b/gi, valueOf: () => WORLD_MONITOR_CHOKEPOINT_COUNT, label: 'maritime chokepoints' },
+  { re: /(\d[\d,]*)\s+active providers\b/gi, valueOf: (stats) => stats.sourceAttribution.providerCount, label: 'active providers', required: true },
+  { re: /(\d[\d,]*)\s+attributed(?: public)? providers\b/gi, valueOf: (stats) => stats.sourceAttribution.providerCount, label: 'attributed providers', required: true },
+  { re: /(\d[\d,]*)\s+chokepoints fused\b/gi, valueOf: () => CHOKEPOINT_REGISTRY.length, label: 'fused chokepoints', required: true },
+  { re: /(\d[\d,]*)\s+maritime chokepoints\b/gi, valueOf: () => CHOKEPOINT_REGISTRY.length, label: 'maritime chokepoints', required: true },
   { re: /(\d[\d,]*)\s+MCP tools\b/gi, valueOf: (stats) => stats.mcpToolCount, label: 'MCP tools' },
   { re: /(\d[\d,]*)\s+feed definitions\b/gi, valueOf: (stats) => stats.feedDefinitions, label: 'feed definitions' },
   { re: /(\d[\d,]*)\s+map layer types\b/gi, valueOf: (stats) => stats.layerDefinitions, label: 'map layer types' },
@@ -44,6 +44,7 @@ function worldMonitorCompareCopy() {
   const chunks = worldMonitorRows().flat();
   for (const page of COMPARISON_PAGES) {
     chunks.push(page.whyWeWin, page.concessionIntro);
+    for (const [name, cells] of page.concessions) chunks.push(name, cells);
     for (const [question, answer] of page.faqs) chunks.push(question, answer);
   }
   return chunks.join('\n');
@@ -129,8 +130,13 @@ describe('#7744 compare pages agree with reconciled product facts', () => {
     );
     assert.match(
       source,
-      /sourceAttribution\.providerCount/,
-      'the compare generator must read the attribution registry, not a sibling copy of the number',
+      /computeStats\(\)\.sourceAttribution\.providerCount/,
+      'the compare generator must call computeStats() for the provider count, not a sibling copy of the number',
+    );
+    assert.doesNotMatch(
+      source,
+      /loadStatsForInventoryFacts\s*\(/,
+      'a drifted attribution manifest must fail the compare generator, not republish the last known-good count',
     );
   });
 
@@ -158,7 +164,11 @@ describe('#7744 compare pages agree with reconciled product facts', () => {
     for (const claim of INVENTORY_CLAIMS) {
       claim.re.lastIndex = 0;
       const expected = claim.valueOf(stats);
-      for (const match of copy.matchAll(claim.re)) {
+      const matches = [...copy.matchAll(claim.re)];
+      if (claim.required) {
+        assert.ok(matches.length > 0, `compare copy must state ${claim.label}`);
+      }
+      for (const match of matches) {
         assert.equal(
           parseCount(match[1]),
           expected,
