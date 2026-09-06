@@ -37,6 +37,7 @@ import type {
   CyberThreat,
   CableHealthRecord,
   MilitaryBaseEnriched,
+  NuclearFacility,
 } from '@/types';
 import { fetchMilitaryBases, type MilitaryBaseCluster as ServerBaseCluster } from '@/services/military-bases';
 import type { AirportDelayAlert, PositionSample } from '@/services/aviation';
@@ -834,6 +835,15 @@ export class DeckGLMap {
   private lastCableHighlightSignature = '';
   private lastCableHealthSignature = '';
   private lastPipelineHighlightSignature = '';
+  // Static facility catalogs filtered once per map instance (#7777). The
+  // nuclear and data-center builders run on every render; a fresh .filter()
+  // per render hands deck.gl a new data container each time, so the
+  // instance attributes are rebuilt even when nothing changed. The
+  // highlight Sets are mutated in place, so the same arrays must stay
+  // referentially stable while a sorted-content signature (never the Set
+  // object) drives updateTriggers.getSize/getColor.
+  private activeNuclearFacilities: NuclearFacility[] | null = null;
+  private activeDatacenters: AIDataCenter[] | null = null;
   private debouncedRebuildLayers: (() => void) & { cancel(): void };
   private debouncedFetchBases: (() => void) & { cancel(): void };
   private debouncedFetchAircraft: (() => void) & { cancel(): void };
@@ -1364,6 +1374,16 @@ export class DeckGLMap {
     return [...set].sort().join('|');
   }
 
+  private getActiveNuclearFacilities(): NuclearFacility[] {
+    this.activeNuclearFacilities ??= NUCLEAR_FACILITIES.filter(f => f.status !== 'decommissioned');
+    return this.activeNuclearFacilities;
+  }
+
+  private getActiveDatacenters(): AIDataCenter[] {
+    this.activeDatacenters ??= AI_DATA_CENTERS.filter(dc => dc.status !== 'decommissioned');
+    return this.activeDatacenters;
+  }
+
   private hasRecentNews(now = Date.now()): boolean {
     for (const ts of this.newsLocationFirstSeen.values()) {
       if (now - ts < 30_000) return true;
@@ -1586,7 +1606,9 @@ export class DeckGLMap {
   }
 
   private rebuildDatacenterSupercluster(): void {
-    const activeDCs = AI_DATA_CENTERS.filter(dc => dc.status !== 'decommissioned');
+    // Share the stable detail-layer array (#7777) so cluster leaf indexes
+    // resolve against the same records detail picking/tooltips identify.
+    const activeDCs = this.getActiveDatacenters();
     this.datacenterSCSource = activeDCs;
     const points = activeDCs.map((dc, i) => ({
       type: 'Feature' as const,
@@ -3002,7 +3024,12 @@ export class DeckGLMap {
 
   private createNuclearLayer(): IconLayer {
     const highlightedNuclear = this.highlightedAssets.nuclear;
-    const data = NUCLEAR_FACILITIES.filter(f => f.status !== 'decommissioned');
+    // Stable catalog array (#7777): same reference across unchanged renders
+    // so deck.gl skips instance-attribute rebuilds; the sorted-content
+    // signature below (never the in-place-mutated Set) invalidates the
+    // highlight-dependent attributes.
+    const data = this.getActiveNuclearFacilities();
+    const highlightSignature = this.getSetSignature(highlightedNuclear);
 
     // Nuclear: HEXAGON icons - yellow/orange color, semi-transparent
     return new IconLayer({
@@ -3026,6 +3053,7 @@ export class DeckGLMap {
       sizeMinPixels: 6,
       sizeMaxPixels: 15,
       pickable: true,
+      updateTriggers: { getSize: highlightSignature, getColor: highlightSignature },
     });
   }
 
@@ -3167,7 +3195,12 @@ export class DeckGLMap {
 
   private createDatacentersLayer(): IconLayer {
     const highlightedDC = this.highlightedAssets.datacenter;
-    const data = AI_DATA_CENTERS.filter(dc => dc.status !== 'decommissioned');
+    // Stable catalog array (#7777): same reference across unchanged renders
+    // so deck.gl skips instance-attribute rebuilds; the sorted-content
+    // signature below (never the in-place-mutated Set) invalidates the
+    // highlight-dependent attributes.
+    const data = this.getActiveDatacenters();
+    const highlightSignature = this.getSetSignature(highlightedDC);
 
     // Datacenters: SQUARE icons - purple color, semi-transparent for layering
     return new IconLayer({
@@ -3191,6 +3224,7 @@ export class DeckGLMap {
       sizeMinPixels: 6,
       sizeMaxPixels: 14,
       pickable: true,
+      updateTriggers: { getSize: highlightSignature, getColor: highlightSignature },
     });
   }
 
@@ -8245,6 +8279,8 @@ export class DeckGLMap {
 
 
     this.layerCache.clear();
+    this.activeNuclearFacilities = null;
+    this.activeDatacenters = null;
 
     this.deckOverlay?.finalize();
     this.deckOverlay = null;
