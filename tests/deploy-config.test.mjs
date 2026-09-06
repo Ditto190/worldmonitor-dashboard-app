@@ -3805,7 +3805,13 @@ describe('vercel.json functions config (none expected after carousel moved to ed
 describe('agent readiness: public document Link headers', () => {
   const vercel = JSON.parse(readFileSync(resolve(__dirname, '../vercel.json'), 'utf-8'));
 
-  for (const source of ['/', '/dashboard', '/dashboard.html', '/blog', '/blog/', '/blog/glossary/ais/', '/blog/example/', '/pro']) {
+  it('keeps discovery headers off blog and pro asset routes', () => {
+    for (const path of ['/blog/_astro/main.js', '/blog/og/post.png', '/blog/images/post.jpg', '/pro/assets/main.js']) {
+      assert.equal(effectiveHeader(path, 'Link'), null, path);
+    }
+  });
+
+  for (const source of ['/', '/dashboard', '/dashboard.html', '/blog', '/blog/', '/blog/glossary/ais/', '/blog/example/', '/pro', '/pro/']) {
     it(`${source} emits a Link header`, () => {
       const linkHeader = { value: effectiveHeader(source, 'Link') };
       assert.ok(linkHeader.value, `expected a Link header on ${source}`);
