@@ -88,6 +88,16 @@ test('every file a test script names exists on disk', () => {
   );
 });
 
+test('test.yml classifies every guarded src-tauri suite extension as code', () => {
+  // This guard runs inside unit and src-tauri suites run in sidecar; both are
+  // gated on `code`, and test.yml drops src-tauri/ paths from `code` except
+  // for the carve-out below. An extension discovered here but missing there
+  // is a suite whose own PR runs neither job.
+  const carveOut = testWorkflow.match(/\/\^src-tauri\\\/\.\*\\\.test\\\.\(([a-z|]+)\)\$\/ \{ count\+\+; next \}/);
+  assert.ok(carveOut, 'test.yml must carve src-tauri test suites back into code');
+  assert.deepEqual(carveOut[1].split('|').sort(), [...EXTENSIONS].sort());
+});
+
 test('every api/, src-tauri/ and scripts/ suite is run by a script CI invokes', () => {
   for (const owner of CI_OWNERS) {
     assert.match(

@@ -106,6 +106,11 @@ test('src-tauri node suites are code, so unit and sidecar run on their own PRs',
   // tests/package-test-command-paths.test.mjs polices src-tauri/ suites from
   // inside unit, and sidecar runs them; both are gated on `code`, which the
   // src-tauri exclusion below would otherwise leave false (#7772).
+  // Every extension the guard discovers must classify as code, or a suite in
+  // that extension is exactly the unowned file the guard cannot see.
+  for (const extension of ['mjs', 'mts', 'cjs', 'js', 'ts', 'tsx']) {
+    assert.equal(classify([`src-tauri/open-url-safety.test.${extension}`]).code, 'true', extension);
+  }
   for (const event of ['pull_request', 'push']) {
     assert.equal(classify(['src-tauri/open-url-safety.test.mjs'], { event }).code, 'true', event);
     assert.equal(classify([
