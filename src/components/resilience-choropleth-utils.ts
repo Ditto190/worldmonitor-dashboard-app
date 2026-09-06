@@ -114,3 +114,12 @@ export function normalizeExclusiveChoropleths(
   // Both newly enabled (e.g. bookmark restore): CII is the established layer, keep it
   return { ...layers, resilienceScore: false };
 }
+
+export function sanitizeResilienceScoreForRenderer(
+  layers: MapLayers,
+  isDeckGLActive: boolean,
+): MapLayers {
+  return layers.resilienceScore && !isDeckGLActive
+    ? { ...layers, resilienceScore: false }
+    : layers;
+}
