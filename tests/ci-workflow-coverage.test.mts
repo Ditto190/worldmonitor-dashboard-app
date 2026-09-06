@@ -1126,9 +1126,9 @@ describe('CI workflow coverage', () => {
     assert.match(deployGateJob, /pullRequests\(first: 100, states: \[OPEN\], after: \$endCursor\)/);
     assert.match(deployGateJob, /pageInfo \{ hasNextPage endCursor \}/);
     assert.match(deployGateJob, /contexts\(first: 100, after: \$endCursor\)/);
-    assert.match(deployGateJob, /status \{ context\(name: "gate"\) \{ state description \} \}/);
+    assert.match(deployGateJob, /status \{ context\(name: "gate"\) \{ state description createdAt \} \}/);
     assert.match(deployGateJob, /stale_terminal_shas=/);
-    assert.match(deployGateJob, /\$gate\.state != "PENDING"/);
+    assert.match(deployGateJob, /\$gate\.state == "SUCCESS"/);
     assert.match(deployGateJob, /context\.state == "PENDING"/);
     assert.match(deployGateJob, /endswith\(\$gate_stamp\) \| not/);
     assert.match(deployGateJob, /awk '!seen\[\$0\]\+\+'/);
