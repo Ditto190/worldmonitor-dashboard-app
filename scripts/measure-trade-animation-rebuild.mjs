@@ -98,9 +98,14 @@ export function summarizeProfile(profile) {
   };
 }
 
+export function isSoftwareGlRenderer(glRenderer) {
+  const text = String(glRenderer || '').toLowerCase();
+  return text.includes('swiftshader') || text.includes('llvmpipe') || /\bsoftware\b/.test(text);
+}
+
 export function decideTradeAnimationIsolation(tradeOn, tradeOff, options = {}) {
-  const softwareGl = Boolean(options.softwareGl);
-  const hardware = Boolean(options.hardware);
+  const softwareGl = Boolean(options.softwareGl) || isSoftwareGlRenderer(tradeOn?.glRenderer);
+  const hardware = Boolean(options.hardware) && !softwareGl;
   const perBuildOn = tradeOn.buildCount
     ? (tradeOn.jsBuildMs + tradeOn.deckCommitMs) / tradeOn.buildCount
     : 0;
@@ -109,10 +114,15 @@ export function decideTradeAnimationIsolation(tradeOn, tradeOff, options = {}) {
     : 0;
   const extraPerBuildMs = round(Math.max(0, perBuildOn - perBuildOff));
   const extraTotalMs = round(Math.max(0, tradeOn.totalMs - tradeOff.totalMs));
-  const repeatableBudgetMiss = tradeOn.overBudgetCount >= REPEATABLE_OVER_BUDGET;
-  const repeatableLongTask = tradeOn.longTasks.longTaskCount >= 2;
-  const repeatableMissedFrames = tradeOn.missedFrameCount >= REPEATABLE_OVER_BUDGET;
-  const rebuildCausedMiss = extraPerBuildMs >= MATERIAL_PER_BUILD_MS || extraTotalMs >= FRAME_BUDGET_MS;
+  const extraOverBudget = (Number(tradeOn.overBudgetCount) || 0) - (Number(tradeOff.overBudgetCount) || 0);
+  const extraLongTasks =
+    (Number(tradeOn.longTasks?.longTaskCount) || 0) - (Number(tradeOff.longTasks?.longTaskCount) || 0);
+  const extraMissedFrames =
+    (Number(tradeOn.missedFrameCount) || 0) - (Number(tradeOff.missedFrameCount) || 0);
+  const repeatableBudgetMiss = extraOverBudget >= REPEATABLE_OVER_BUDGET;
+  const repeatableLongTask = extraLongTasks >= 2;
+  const repeatableMissedFrames = extraMissedFrames >= REPEATABLE_OVER_BUDGET;
+  const rebuildCausedMiss = extraPerBuildMs >= MATERIAL_PER_BUILD_MS || repeatableBudgetMiss;
 
   if (!tradeOn.buildCount) {
     return {
@@ -123,16 +133,18 @@ export function decideTradeAnimationIsolation(tradeOn, tradeOff, options = {}) {
     };
   }
 
-  if ((repeatableBudgetMiss || repeatableLongTask || repeatableMissedFrames) && rebuildCausedMiss) {
-    if (softwareGl && !hardware && (repeatableMissedFrames && !repeatableBudgetMiss && !repeatableLongTask)) {
-      return {
-        decision: 'unmet',
-        reason:
-          'Only software-GL missed frames were observed. That is not a hardware frame-budget miss; re-run headed without SwiftShader.',
-        extraPerBuildMs,
-        extraTotalMs,
-      };
-    }
+  const fpsOnly = repeatableMissedFrames && !repeatableBudgetMiss && !repeatableLongTask;
+  if (fpsOnly && softwareGl && !hardware) {
+    return {
+      decision: 'unmet',
+      reason:
+        'Only software-GL missed frames were observed. That is not a hardware frame-budget miss; re-run headed without SwiftShader.',
+      extraPerBuildMs,
+      extraTotalMs,
+    };
+  }
+
+  if ((repeatableBudgetMiss || repeatableLongTask || (repeatableMissedFrames && hardware)) && rebuildCausedMiss) {
     return {
       decision: 'implement',
       reason:
@@ -332,16 +344,17 @@ export function buildReport(result, args) {
   const offSummaries = (result?.tradeOff || []).map(summarizeProfile);
   const tradeOn = meanSummaries(onSummaries);
   const tradeOff = meanSummaries(offSummaries);
+  const softwareGl = Boolean(args?.softwareGl) || isSoftwareGlRenderer(tradeOn.glRenderer);
   const decision = decideTradeAnimationIsolation(tradeOn, tradeOff, {
-    softwareGl: Boolean(args?.softwareGl),
-    hardware: Boolean(args?.headed) && !args?.softwareGl,
+    softwareGl,
+    hardware: Boolean(args?.headed) && !softwareGl,
   });
   return {
     generatedAt: new Date().toISOString(),
     url: args?.url,
     cpuThrottleRate: Number(args?.cpu) || 1,
     repeats: Number(args?.repeats) || 1,
-    softwareGl: Boolean(args?.softwareGl),
+    softwareGl,
     headed: Boolean(args?.headed),
     userAgent: result?.userAgent ?? null,
     tradeOn,

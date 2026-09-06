@@ -148,6 +148,10 @@ type TradeAnimationProfileResult = {
   glRenderer: string | null;
 };
 
+type DeckLayerManager = {
+  updateLayers: () => void;
+};
+
 type MapInternal = {
   updateLayers: (deferred?: boolean) => void;
   buildLayers: (deferHeavy?: boolean) => Array<{ id: string }>;
@@ -155,7 +159,10 @@ type MapInternal = {
   container: HTMLElement;
   state: { layers: MapLayers };
   maplibreMap?: MapLibreMap;
-  deckOverlay?: { setProps: (props: { layers?: unknown }) => void };
+  deckOverlay?: {
+    setProps: (props: { layers?: unknown }) => void;
+    _deck?: { layerManager?: DeckLayerManager };
+  };
   tradeTrips: unknown[];
   tradeRouteSegments: unknown[];
   zoomHintGuard?: {
@@ -668,7 +675,8 @@ const runTradeAnimationProfile = async (
   const origBuild = mapInternal.buildLayers;
   const origHints = mapInternal.updateZoomHints;
   const overlay = mapInternal.deckOverlay;
-  const origSetProps = overlay?.setProps.bind(overlay);
+  const layerManager = overlay?._deck?.layerManager;
+  const origLayerUpdate = layerManager?.updateLayers.bind(layerManager);
 
   let inUpdate = false;
   let lastJsBuild = 0;
@@ -714,11 +722,23 @@ const runTradeAnimationProfile = async (
     return layers;
   };
 
-  if (overlay && origSetProps) {
-    overlay.setProps = (props: { layers?: unknown }) => {
+  const applyDeckCommit = (elapsed: number): void => {
+    const last = samples[samples.length - 1];
+    if (last) {
+      last.deckCommitMs += elapsed;
+      last.totalMs = last.jsBuildMs + last.deckCommitMs;
+      return;
+    }
+    lastDeckCommit += elapsed;
+  };
+
+  if (layerManager && origLayerUpdate) {
+    // deck.gl queues layers in setProps; matching, lifecycle, and attribute
+    // rebuilds run later in LayerManager.updateLayers during the map render.
+    layerManager.updateLayers = function wrappedLayerManagerUpdate() {
       const started = performance.now();
-      origSetProps(props);
-      if (inUpdate) lastDeckCommit = performance.now() - started;
+      origLayerUpdate();
+      applyDeckCommit(performance.now() - started);
     };
   }
 
@@ -740,22 +760,27 @@ const runTradeAnimationProfile = async (
     const previousNuclear = lastNuclear;
     const previousTrips = lastTrips;
     lastJsBuild = 0;
-    lastDeckCommit = 0;
     lastLayerCount = 0;
-    const started = performance.now();
+    const sample: TradeAnimationProfileSample = {
+      totalMs: 0,
+      jsBuildMs: 0,
+      deckCommitMs: lastDeckCommit,
+      layerCount: 0,
+      nuclearIdentityChanged: false,
+      tripsIdentityChanged: false,
+    };
+    lastDeckCommit = 0;
+    samples.push(sample);
     try {
       origUpdate.call(this, deferred);
     } finally {
       inUpdate = false;
     }
-    samples.push({
-      totalMs: performance.now() - started,
-      jsBuildMs: lastJsBuild,
-      deckCommitMs: lastDeckCommit,
-      layerCount: lastLayerCount,
-      nuclearIdentityChanged: Boolean(lastNuclear) && lastNuclear !== previousNuclear,
-      tripsIdentityChanged: Boolean(lastTrips) && lastTrips !== previousTrips,
-    });
+    sample.jsBuildMs = lastJsBuild;
+    sample.layerCount = lastLayerCount;
+    sample.nuclearIdentityChanged = Boolean(lastNuclear) && lastNuclear !== previousNuclear;
+    sample.tripsIdentityChanged = Boolean(lastTrips) && lastTrips !== previousTrips;
+    sample.totalMs = sample.jsBuildMs + sample.deckCommitMs;
   };
 
   try {
@@ -765,6 +790,8 @@ const runTradeAnimationProfile = async (
     hintScanCount = 0;
     samples.length = 0;
     longTasks.length = 0;
+    lastDeckCommit = 0;
+    lastJsBuild = 0;
     lastNuclear = null;
     lastTrips = null;
 
@@ -773,6 +800,9 @@ const runTradeAnimationProfile = async (
       if (previousRaf > 0) rafIntervalsMs.push(now - previousRaf);
       previousRaf = now;
     });
+    // Flush a deferred LayerManager.updateLayers that is still queued after
+    // the last animation-driven setProps.
+    await waitAnimationFrames(2);
 
     const snapshot = getDeckLayerSnapshot();
     return {
@@ -802,7 +832,7 @@ const runTradeAnimationProfile = async (
     mapInternal.updateLayers = origUpdate;
     mapInternal.buildLayers = origBuild;
     mapInternal.updateZoomHints = origHints;
-    if (overlay && origSetProps) overlay.setProps = origSetProps;
+    if (layerManager && origLayerUpdate) layerManager.updateLayers = origLayerUpdate;
   }
 };
 

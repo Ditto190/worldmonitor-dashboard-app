@@ -152,5 +152,10 @@ describe('trade animation still full-rebuilds (#7781 characterization)', () => {
     assert.match(harnessSrc, /TRADE_ANIMATION_PROFILE_LAYERS/);
     assert.match(harnessSrc, /nuclearIdentityChanged/);
     assert.match(harnessSrc, /deckCommitMs/);
+    assert.match(
+      harnessSrc,
+      /layerManager\.updateLayers/,
+      'profiler must time LayerManager.updateLayers, not only overlay.setProps',
+    );
   });
 });

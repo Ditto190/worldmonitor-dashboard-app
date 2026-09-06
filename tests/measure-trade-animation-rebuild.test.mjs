@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   FRAME_BUDGET_MS,
   decideTradeAnimationIsolation,
+  isSoftwareGlRenderer,
   parseArgs,
   summarizeLongTasks,
   summarizeProfile,
@@ -139,6 +140,39 @@ describe('decideTradeAnimationIsolation (#7781)', () => {
     const empty = summarizeProfile({ samples: [], buildCount: 0, longTasks: [] });
     const decision = decideTradeAnimationIsolation(empty, empty);
     assert.equal(decision.decision, 'unmet');
+  });
+
+  it('does not implement when both fixtures miss the same display frames', () => {
+    const stalls = Array.from({ length: 60 }, () => 28);
+    const on = summarizeProfile(cheapProfile({
+      samples: Array.from({ length: 30 }, () => sample({ totalMs: 0.6, jsBuildMs: 0.2, deckCommitMs: 0.4 })),
+      rafIntervalsMs: stalls,
+    }));
+    const off = summarizeProfile(cheapProfile({
+      enabledLayers: ['nuclear', 'datacenters'],
+      buildCount: 0,
+      samples: [],
+      rafIntervalsMs: stalls,
+    }));
+    const decision = decideTradeAnimationIsolation(on, off, { hardware: true });
+    assert.equal(decision.decision, 'no-change');
+  });
+
+  it('treats a SwiftShader renderer as software even without the CLI flag', () => {
+    const on = summarizeProfile(cheapProfile({
+      glRenderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)))',
+      rafIntervalsMs: Array.from({ length: 60 }, () => 28),
+    }));
+    const off = summarizeProfile(cheapProfile({
+      enabledLayers: ['nuclear', 'datacenters'],
+      buildCount: 0,
+      samples: [],
+      rafIntervalsMs: Array.from({ length: 60 }, () => 16.7),
+      glRenderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)))',
+    }));
+    const decision = decideTradeAnimationIsolation(on, off, { hardware: true, softwareGl: false });
+    assert.equal(decision.decision, 'unmet');
+    assert.equal(isSoftwareGlRenderer(on.glRenderer), true);
   });
 });
 
