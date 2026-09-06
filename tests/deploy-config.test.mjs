@@ -2163,7 +2163,7 @@ describe('security header guardrails', () => {
     const script = packageJson.scripts?.['test:e2e:webmcp'] ?? '';
     const productionScript = packageJson.scripts?.['test:e2e:webmcp:production'] ?? '';
     const variantSmokeJob = testWorkflowSource.match(
-      /\n {2}variant-smoke-full:\n[\s\S]*?(?=\n {2}[a-z][a-z0-9-]+:\n|$)/,
+      /\n {2}variant-smoke-pro-webmcp:\n[\s\S]*?(?=\n {2}[a-z][a-z0-9-]+:\n|$)/,
     )?.[0] ?? '';
     assert.match(script, /WM_REQUIRE_WEBMCP=1/);
     assert.match(script, /e2e\/webmcp\.spec\.ts/);
