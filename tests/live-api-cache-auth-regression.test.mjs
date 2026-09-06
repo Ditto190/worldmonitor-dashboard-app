@@ -119,7 +119,9 @@ function assertPublicCacheable(resp, name) {
 
 async function fetchText(pathOrUrl, init = {}) {
   const headers = new Headers(init.headers || {});
-  headers.set('User-Agent', USER_AGENT);
+  // A probe may impersonate a declared AI agent on purpose (#7804); everything
+  // else identifies as the sweep.
+  if (!headers.has('user-agent')) headers.set('User-Agent', USER_AGENT);
   const timeoutSignal = AbortSignal.timeout(LIVE_API_CACHE_TIMEOUT_MS);
   const signal = init.signal && typeof AbortSignal.any === 'function'
     ? AbortSignal.any([init.signal, timeoutSignal])
@@ -204,7 +206,7 @@ describe(`live API cache/auth regression sweep (${LIVE ? 'ENABLED' : 'SKIPPED - 
       'anonymous public REST/RPC responses remain public-cacheable;',
       'MCP auth/protocol responses are no-store;',
       'OAuth metadata remains discoverable and cacheable;',
-      'corpus, docs, blog and agent text files are Cloudflare-cached in their HTML representation only.',
+      'corpus, docs, blog, agent text files and the entry documents are Cloudflare-cached in their HTML representation only.',
     ].join(' '));
     assert.equal(LIVE, true);
     // Mutation guard: reverting assertNotCached200 to inspect only
@@ -564,13 +566,29 @@ describe(`live API cache/auth regression sweep (${LIVE ? 'ENABLED' : 'SKIPPED - 
   // Cloudflare keys only on the URL, so a negotiating request must stay
   // ineligible — never a HIT, and still the negotiated body — or a browser could
   // be handed a crawler's markdown for ten minutes.
-  it('serves the docs, blog and agent text files from the Cloudflare edge, HTML representation only', async () => {
+  it('serves the docs, blog, agent text files and entry documents from the Cloudflare edge, HTML representation only', async () => {
     for (const [url, name] of [
       [`${WWW_BASE}/docs/documentation`, 'docs document'],
       [`${WWW_BASE}/blog/`, 'blog index'],
       [`${WWW_BASE}/llms.txt`, 'llms.txt'],
     ]) {
       const { resp } = await waitForCloudflareHit(url, name);
+      assert.equal(
+        resp.headers.get('cdn-cache-control'),
+        CORPUS_EDGE_CACHE_CONTROL,
+        `${name} must advertise the 600s shared TTL the cache rule honours`,
+      );
+    }
+
+    // #7804: the two entry documents moved out of the dashboard-managed "WWW
+    // entry HTML" rule, which had no representation guard, into the same rule
+    // as everything above. They are still cached — and cached as the HTML shell.
+    for (const [url, name] of [
+      [`${WWW_BASE}/`, 'homepage'],
+      [`${WWW_BASE}/dashboard`, 'dashboard entry'],
+    ]) {
+      const { resp } = await waitForCloudflareHit(url, name);
+      assert.match(resp.headers.get('content-type') || '', /text\/html/, `${name}: the stored representation must be the HTML shell`);
       assert.equal(
         resp.headers.get('cdn-cache-control'),
         CORPUS_EDGE_CACHE_CONTROL,
@@ -597,7 +615,13 @@ describe(`live API cache/auth regression sweep (${LIVE ? 'ENABLED' : 'SKIPPED - 
     );
     assert.notEqual(cfCacheStatus(flight.resp).toUpperCase(), 'HIT', 'RSC flights must never come from the Cloudflare cache');
 
-    for (const url of [`${WWW_BASE}/blog/`, `${WWW_BASE}/docs/documentation`]) {
+    // The entry documents are in this loop because of #7804: the entry rule
+    // admitted GET / with `Accept: text/markdown`, and Vercel renders the
+    // homepage as markdown under the same cacheable header. Before the corpus
+    // rule claimed / and the entry rule was retired, this request would have
+    // STORED the markdown under / for every browser on that edge server — so
+    // this probe must only ever run against a zone where that apply has landed.
+    for (const url of [`${WWW_BASE}/blog/`, `${WWW_BASE}/docs/documentation`, `${WWW_BASE}/`, `${WWW_BASE}/dashboard`]) {
       const markdown = await fetchText(url, { headers: { Accept: 'text/markdown' } });
       assert.equal(markdown.resp.status, 200, `${url}: markdown request must still be served`);
       assert.match(
@@ -611,6 +635,21 @@ describe(`live API cache/auth regression sweep (${LIVE ? 'ENABLED' : 'SKIPPED - 
         `${url}: the markdown representation must never come from the Cloudflare cache`,
       );
     }
+
+    // The homepage's third representation: middleware.ts rewrites GET / to
+    // /home.md for the declared AI agents under `Vary: User-Agent`, which
+    // Cloudflare ignores. The rule carves those agents out of the / claim, so a
+    // crawler must get its markdown from the origin and never the stored
+    // browser HTML. This control cannot poison anything: the origin answers
+    // no-store, so a wrongly admitted request would surface as a HIT, not a store.
+    const crawler = await fetchText(`${WWW_BASE}/`, { headers: { 'User-Agent': 'GPTBot/1.0 (+live-cache-sweep)' } });
+    assert.equal(crawler.resp.status, 200, 'homepage for a declared AI agent must still be served');
+    assert.match(
+      crawler.resp.headers.get('content-type') || '',
+      /text\/markdown/,
+      'a declared AI agent must receive the markdown homepage, not the cached HTML shell',
+    );
+    assert.notEqual(cfCacheStatus(crawler.resp).toUpperCase(), 'HIT', 'the agent homepage must never come from the Cloudflare cache');
 
     // The docs MCP server shares the /docs prefix and is carved out by exact path.
     // Its status for a bare GET is the handler's business; that it is no-store
