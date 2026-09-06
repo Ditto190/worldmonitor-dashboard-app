@@ -51,12 +51,16 @@ const FORWARDED_REQUEST_HEADERS = [
 
 // Hop-by-hop / recomputed response headers that must not be forwarded after
 // fetch has already decoded the body.
-// Hop-by-hop framing, plus every cache directive: the docs MCP surface is
-// no-store end to end (the #4497 class is a shared-cache HIT of an MCP answer),
-// and the upstream does not promise that. Mintlify answers a bare GET with a 405
-// carrying its default `public, max-age=0, must-revalidate`, which the live
-// sweep (tests/live-api-cache-auth-regression.test.mjs, docs MCP probe) rejects.
-// The policy is owned here, not forwarded.
+// Hop-by-hop framing, plus every header that can carry a shared-cache policy:
+// the docs MCP surface is no-store end to end (the #4497 class is a shared-cache
+// HIT of an MCP answer), and the upstream does not promise that. Mintlify answers
+// a bare GET with a 405 carrying its default `public, max-age=0, must-revalidate`,
+// which the live sweep (tests/live-api-cache-auth-regression.test.mjs, docs MCP
+// probe) rejects. Vercel reads Vercel-CDN-Cache-Control > CDN-Cache-Control >
+// Cache-Control and Cloudflare reads Cloudflare-CDN-Cache-Control >
+// CDN-Cache-Control > Cache-Control, so a CDN-specific header left in place
+// would silently outrank the `no-store` set below; the list mirrors
+// tests/helpers/shared-cache-policy.mjs, whose CDN_CACHE_HEADERS pins it.
 const STRIPPED_RESPONSE_HEADERS = new Set([
   'content-encoding',
   'content-length',
@@ -65,6 +69,8 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   'cache-control',
   'cdn-cache-control',
   'vercel-cdn-cache-control',
+  'cloudflare-cdn-cache-control',
+  'surrogate-control',
 ]);
 
 const CORS_HEADERS: Record<string, string> = {
