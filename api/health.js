@@ -612,7 +612,14 @@ const SEED_META = {
   // Always-on loop publishes every few seconds. Five minutes tolerates deploy
   // churn while still detecting a stopped worker well before leases age out.
   companyMonitoringWorker: { key: 'seed-meta:company-monitoring:worker', maxStaleMin: 5, workerControl: true },
-  earthquakes:      { key: 'seed-meta:seismology:earthquakes',  maxStaleMin: 30 },
+  earthquakes: {
+    key: 'seed-meta:seismology:earthquakes', maxStaleMin: 30,
+    sourceFailure: {
+      warnAfterConsecutive: 2, maxPendingMin: 10,
+      successAtField: 'lastSourceSuccessAt',
+      failureCodePattern: /^EARTHQUAKE_UPSTREAM_INCOMPLETE$/,
+    },
+  },
   wildfires:        {
     key: 'seed-meta:wildfire:fires',
     maxStaleMin: 360,
@@ -2249,7 +2256,8 @@ function projectSourceFailure(meta, policy, now, maxStaleMin) {
   if (policy.maxPendingMin != null) {
     const first = meta.firstSourceFailureAt;
     const attempt = meta.lastSourceAttemptAt;
-    const success = meta.fetchedAt;
+    // A mixed-source publication may be new while one retained provider is older.
+    const success = meta[policy.successAtField || 'fetchedAt'];
     const validEpisode = [first, attempt, success].every((value) => Number.isSafeInteger(value) && value > 0)
       && success <= first && first <= attempt && attempt <= now;
     const deadline = validEpisode
