@@ -15,8 +15,13 @@ import {
   selectFrozenQuotes,
   timelineRecord,
   selectCountryHeadlines,
-  selectCountryIndexHeadlines,
 } from '../scripts/freeze-crawlable-live-pulse.mjs';
+import {
+  COUNTRY_INDEX_MAX_AGE_MS,
+  selectCountryIndexHeadlines,
+} from '../scripts/crawlable-country-index.mjs';
+import { GDELT_COUNTRY_INDEX_WINDOW_MS } from '../scripts/_gdelt-bulk-materializer.mjs';
+import { COUNTRY_INDEX_ORIGIN, developmentsHasDatedItem } from '../scripts/crawlable-developments.mjs';
 
 describe('freeze crawlable live pulse API base routing', () => {
   const originalFetch = globalThis.fetch;
@@ -197,16 +202,23 @@ function countryPayload() {
     // Per-country index (#7748): articles served for `country:<code>`
     // queries, keyed by code; countries absent here serve an empty list.
     // `countryIndexStatus` is 'ok' | 'seed-unavailable' | 'fail';
-    // `countryIndexFailCodes` 503 individual countries.
+    // `countryIndexFailCodes` 503 individual countries;
+    // `countryIndexErrorCodes` answers a route error string for a country
+    // ({ BT: 'revocations-unavailable' }); `countryIndexServeFirst` serves
+    // that many requests and answers seed-unavailable afterwards (an index
+    // key expiring mid-run).
     countryArticles = {},
     countryIndexStatus = 'ok',
     countryIndexFailCodes = [],
+    countryIndexErrorCodes = {},
+    countryIndexServeFirst = Infinity,
     onRequest = null,
     marketSymbols = ['^GSPC', '^IXIC', '^VIX'],
     commoditySymbols = ['CL=F', 'BZ=F', 'GC=F', 'HG=F', 'NG=F', 'EURUSD=X', 'USDJPY=X'],
     cryptoSymbols = ['BTC', 'ETH'],
   } = {}) {
     let countriesServed = 0;
+    let indexServed = 0;
     globalThis.fetch = async (url, options = {}) => {
       const href = String(url);
       onRequest?.(href, options);
@@ -248,9 +260,13 @@ function countryPayload() {
         if (countryIndexStatus === 'fail' || countryIndexFailCodes.includes(code)) {
           return { ok: false, status: 503, text: async () => '{}' };
         }
-        if (countryIndexStatus === 'seed-unavailable') {
+        if (countryIndexStatus === 'seed-unavailable' || indexServed >= countryIndexServeFirst) {
           return jsonResponse({ articles: [], query, error: 'seed-unavailable' });
         }
+        if (countryIndexErrorCodes[code]) {
+          return jsonResponse({ articles: [], query, error: countryIndexErrorCodes[code] });
+        }
+        indexServed += 1;
         return jsonResponse({ articles: countryArticles[code] || [], query, error: '' });
       }
       if (href.includes('get-country-intel-brief')) {
@@ -928,7 +944,7 @@ describe('freeze per-country developments capture', () => {
     ];
   }
 
-  it('tops up a country the digest never names from the per-country index and grounds its brief there', async () => {
+  it('tops up a country the digest never names from the per-country index: dated headlines, no brief', async () => {
     const requested = [];
     stubFetch({
       digestItems: countryDigestItems(),
@@ -942,17 +958,55 @@ describe('freeze per-country developments capture', () => {
       'https://www.rnz.co.nz/news/pacific/palau-budget',
     ], 'only title-named, recent, https, non-aggregator rows are frozen');
     assert.equal(palau.headlines[0].source, 'islandtimes.example');
+    assert.equal(palau.headlines[0].origin, COUNTRY_INDEX_ORIGIN, 'an index row carries its provenance');
     assert.match(palau.headlines[0].publishedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/, 'the compact seendate is frozen as an ISO instant');
-    assert.equal(palau.briefSkipped, null);
-    assert.ok(palau.brief, 'two publishers from the index ground a brief, and its cited URLs pass the provenance check');
-    assert.equal(palau.brief.sources.length, 2);
+    // Two open-web hosts are two publishers, but neither is a curated feed:
+    // index rows corroborate a brief, they never ground one alone, so no
+    // LLM call is spent and the page keeps its dated headlines.
+    assert.equal(palau.brief, null);
+    assert.equal(palau.briefSkipped, 'uncurated-grounding');
+    assert.ok(!requested.some((href) => href.includes('get-country-intel-brief?country_code=PW')));
     assert.ok(requested.some((href) => href.endsWith('/api/intelligence/v1/search-gdelt-documents?query=country%3APW&max_records=12')));
     assert.equal(snapshot.coverage.developmentsCountryIndex.state, 'available');
     assert.equal(snapshot.coverage.developmentsCountryIndex.countryCount, 1);
     assert.ok(snapshot.coverage.developmentsCountryIndex.requestCount >= snapshot.coverage.countryCount - 2,
       'every country the digest leaves short is asked');
     assert.equal(snapshot.coverage.developmentsCountryIndex.errorCount, 0);
+    assert.equal(snapshot.coverage.briefUncuratedGroundingCount, 1);
     assert.equal(snapshot.coverage.headlineCountryCount, 3);
+    assert.ok(developmentsHasDatedItem(palau), 'the page still carries a dated, sourced item');
+  });
+
+  it('lets an index row corroborate a single curated row into a brief, and stamps the cited source', async () => {
+    const requested = [];
+    stubFetch({
+      digestItems: [
+        ...countryDigestItems(),
+        {
+          title: 'Bhutan hydropower export deal signed',
+          source: 'Test Wire',
+          link: 'https://example.test/bhutan-hydro',
+          snippet: '',
+          publishedAt: Date.now() - 3600_000,
+          importanceScore: 60,
+        },
+      ],
+      countryArticles: {
+        BT: [indexArticle('Bhutan tightens monetary policy', 'https://kuenselonline.example/rates', 'kuenselonline.example')],
+      },
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    const bhutan = snapshot.countries.BT.developments;
+    assert.deepEqual(bhutan.headlines.map((row) => row.source), ['Test Wire', 'kuenselonline.example']);
+    assert.equal(bhutan.briefSkipped, null);
+    assert.ok(bhutan.brief, 'one curated feed plus one index row is two publishers with a curated anchor');
+    assert.ok(requested.some((href) => href.includes('get-country-intel-brief?country_code=BT')));
+    // The server echoes Source lines without provenance; the freeze restores
+    // it by URL so the corpus's publish-time floor sees the same split.
+    const cited = bhutan.brief.sources.find((source) => source.url === 'https://kuenselonline.example/rates');
+    assert.equal(cited.origin, COUNTRY_INDEX_ORIGIN);
+    assert.equal(bhutan.brief.sources.find((source) => source.url === 'https://example.test/bhutan-hydro').origin, undefined);
   });
 
   it('keeps digest rows ahead of index rows and never asks for a country already at the limit', async () => {
@@ -972,6 +1026,10 @@ describe('freeze per-country developments capture', () => {
           indexArticle('Sudan ceasefire monitors deploy', 'https://www.dabangasudan.org/monitors', 'dabangasudan.org'),
           // The same URL the digest already froze: counted once.
           indexArticle('Sudan aid convoy reaches Darfur amid talks', 'https://news.un.org/feed/view/en/story/2026/09/1168270', 'news.un.org'),
+          indexArticle('Sudanese pound steadies', 'https://sudantribune.example/pound', 'sudantribune.example', 4000),
+          indexArticle('Sudan grain imports resume', 'https://radiotamazuj.example/grain', 'radiotamazuj.example', 5000),
+          indexArticle('Sudan cholera response scales up', 'https://who.example/cholera', 'who.example', 6000),
+          indexArticle('Sudan port traffic recovers', 'https://portsudan.example/traffic', 'portsudan.example', 7000),
         ],
         NO: [indexArticle('Norway index row', 'https://nordic.test/index-row', 'nordic.test')],
       },
@@ -979,7 +1037,11 @@ describe('freeze per-country developments capture', () => {
     });
     const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
     const sudan = snapshot.countries.SD.developments.headlines;
-    assert.deepEqual(sudan.map((row) => row.source), ['UN News', 'Test Wire', 'dabangasudan.org']);
+    // Two digest rows leave three slots; five publishable index rows are
+    // offered, so the cap must truncate rather than be a no-op.
+    assert.equal(sudan.length, 5);
+    assert.deepEqual(sudan.slice(0, 3).map((row) => row.source), ['UN News', 'Test Wire', 'dabangasudan.org']);
+    assert.ok(!sudan.some((row) => row.url === 'https://portsudan.example/traffic'), 'the sixth candidate does not fit');
     assert.equal(snapshot.countries.NO.developments.headlines.length, 5);
     assert.ok(!requested.some((href) => href.includes('query=country%3ANO')), 'five digest rows leave no slot to fill');
     assert.ok(!snapshot.countries.NO.developments.headlines.some((row) => row.url === 'https://nordic.test/index-row'));
@@ -1019,13 +1081,59 @@ describe('freeze per-country developments capture', () => {
       entry.code === 'BT' && entry.stage === 'country-index' && /HTTP 503/.test(entry.message)
     )));
     assert.deepEqual(snapshot.countries.BT.developments.headlines, []);
-    assert.ok(snapshot.countries.PW.developments.brief, 'other countries still top up');
+    assert.equal(snapshot.countries.PW.developments.headlines.length, 2, 'other countries still top up');
     // A brief collapse is blamed on the brief, never on the top-up hiccup.
     stubFetch({ digestItems: countryDigestItems(), countryIndexFailCodes: ['BT'], briefStatus: 'fail' });
     await assert.rejects(
       runFreeze({ serviceKey: 'test-key' }),
       (error) => /captured briefs for 0 of 2/.test(error.message) && !/search-gdelt-documents/.test(error.message),
     );
+  });
+
+  it('treats a transient route error as that country\'s error, not a run-wide condition', async () => {
+    // One Redis blip on the revocation set (or the index read) answers one
+    // request; the next country must still be asked, or a single hiccup
+    // reverts the week's tail to digest-only (review of #7748).
+    const requested = [];
+    stubFetch({
+      digestItems: countryDigestItems(),
+      countryArticles: { PW: palauIndexArticles() },
+      countryIndexErrorCodes: { AD: 'revocations-unavailable', BT: 'index-read-failed' },
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(snapshot.coverage.developmentsCountryIndex.state, 'available');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.errorCount, 2);
+    assert.equal(snapshot.coverage.developmentsCountryIndex.unavailableCount, 0);
+    assert.ok(snapshot.coverage.developmentsCountryIndex.requestCount > 100, 'the loop kept asking after the blips');
+    assert.equal(snapshot.countries.PW.developments.headlines.length, 2);
+    const entries = snapshot.errors.developments.filter((entry) => entry.stage === 'country-index');
+    assert.deepEqual(entries.map((entry) => entry.code).sort(), ['AD', 'BT']);
+    assert.ok(entries.every((entry) => /answered (revocations-unavailable|index-read-failed)/.test(entry.message)));
+    assert.ok(!entries.some((entry) => entry.code === '*'));
+  });
+
+  it('records an index that expires mid-run as partial and stops asking', async () => {
+    const requested = [];
+    stubFetch({
+      digestItems: countryDigestItems(),
+      countryArticles: { PW: palauIndexArticles() },
+      countryIndexServeFirst: 3,
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(snapshot.coverage.developmentsCountryIndex.state, 'partial');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.servedCount, 3);
+    assert.equal(snapshot.coverage.developmentsCountryIndex.unavailableCount, 1);
+    assert.equal(requested.filter((href) => href.includes('search-gdelt-documents')).length, 4,
+      'three served, one seed-unavailable, then the run is settled');
+    assert.equal(snapshot.errors.developments.filter((entry) => entry.stage === 'country-index').length, 1);
+  });
+
+  it('keeps the freeze window at least as wide as the materializer index window', () => {
+    // A row the index still holds must not be refused here as too old; the
+    // two constants live in different modules, so pin them together.
+    assert.ok(COUNTRY_INDEX_MAX_AGE_MS >= GDELT_COUNTRY_INDEX_WINDOW_MS);
   });
 
   it('tops up the tail without a key, since the index route is anonymous', async () => {
@@ -1059,6 +1167,7 @@ describe('freeze per-country developments capture', () => {
       'https://islandtimes.example/palau-pact',
       'https://www.rnz.co.nz/news/pacific/palau-budget',
     ]);
+    assert.ok(rows.every((row) => row.origin === COUNTRY_INDEX_ORIGIN));
     assert.deepEqual(selectCountryIndexHeadlines(null, 'PW'), []);
     assert.deepEqual(selectCountryIndexHeadlines([], 'PWX'), []);
   });

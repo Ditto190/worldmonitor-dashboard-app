@@ -5,7 +5,7 @@ import type {
   SearchGdeltDocumentsResponse,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
-import { getCachedJson } from '../../../_shared/redis';
+import { getCachedJson, getLargeRawJson } from '../../../_shared/redis';
 import { readRevokedUrlSet } from '../../../_shared/digest-revocations';
 import { countryMentionTerms, mentionsCountry } from '../../../../shared/country-mention.js';
 
@@ -30,6 +30,11 @@ const COUNTRY_ARTICLES_KEY = 'gdelt:bulk:country-articles:v1';
 //                      by the shared matcher: the index is keyed on GKG
 //                      locations, and a location mention alone is how
 //                      Togo's page once carried a UN world-map vote.
+//                      Three error strings, kept distinct because the freeze
+//                      treats them differently: `seed-unavailable` (the index
+//                      key is missing — a run-wide condition), and the two
+//                      transient reads `index-read-failed` and
+//                      `revocations-unavailable` (that one request's failure).
 
 type SeededGdeltData = {
   topics?: Array<{
@@ -121,15 +126,30 @@ export function selectCountryArticles(
   return out;
 }
 
+// The index is ~250 countries x 10 rows; read it on the pipeline deadline
+// (getLargeRawJson) rather than getCachedJson's short GET deadline, and keep
+// a read failure distinguishable from a miss: a timeout answered as
+// `seed-unavailable` would settle the freeze's whole run as index-less.
+async function readCountryIndex(): Promise<{ index: SeededCountryIndex | null; failed: boolean }> {
+  try {
+    return { index: (await getLargeRawJson(COUNTRY_ARTICLES_KEY)) as SeededCountryIndex | null, failed: false };
+  } catch {
+    return { index: null, failed: true };
+  }
+}
+
 async function searchCountryArticles(
   query: string,
   countryCode: string,
   maxRecords: number,
 ): Promise<SearchGdeltDocumentsResponse> {
-  const [index, revoked] = await Promise.all([
-    getCachedJson(COUNTRY_ARTICLES_KEY, true) as Promise<SeededCountryIndex | null>,
+  const [{ index, failed }, revoked] = await Promise.all([
+    readCountryIndex(),
     readRevokedUrlSet(),
   ]);
+  if (failed) {
+    return { articles: [], query, error: 'index-read-failed' };
+  }
   if (!index || typeof index !== 'object' || !index.byCountry || typeof index.byCountry !== 'object') {
     // Distinct signal: the index is missing/expired, not "no articles for
     // this country". The freeze records it once and stops asking.

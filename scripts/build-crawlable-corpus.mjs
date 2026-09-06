@@ -58,6 +58,7 @@ import {
   withheldTransitCountSentence,
 } from './crawlable-live-tools.mjs';
 import {
+  COUNTRY_INDEX_ORIGIN,
   developmentsHasDatedItem,
   normalizeFrozenDevelopments,
 } from './crawlable-developments.mjs';
@@ -3181,7 +3182,10 @@ export function renderCountryDevelopments({ countryCode = '', countryName, devel
   if (movementSentence) parts.push(`        <p>${movementSentence}</p>`);
   if (headlines.length > 0 || briefExtraSources.length > 0) {
     const items = [...headlines, ...briefExtraSources]
-      .map((headline) => `          <li><a href="${escapeHtml(headline.url)}">${escapeHtml(headline.title)}</a> <small>${escapeHtml(headline.source)} · <time datetime="${escapeHtml(headline.publishedAt)}">${escapeHtml(formatStaticDateTime(headline.publishedAt))}</time></small></li>`)
+      // An index row (#7748) links to whatever host GDELT crawled, not a
+      // curated feed: it is published as a dated, sourced development but
+      // earns no link equity from an indexed page.
+      .map((headline) => `          <li><a href="${escapeHtml(headline.url)}"${headline.origin === COUNTRY_INDEX_ORIGIN ? ' rel="nofollow"' : ''}>${escapeHtml(headline.title)}</a> <small>${escapeHtml(headline.source)} · <time datetime="${escapeHtml(headline.publishedAt)}">${escapeHtml(formatStaticDateTime(headline.publishedAt))}</time></small></li>`)
       .join('\n');
     parts.push(`        <ul>\n${items}\n        </ul>`);
   }
@@ -3414,49 +3418,72 @@ export function assertCountryBriefPresentation({ pagePath, html }) {
 // clears and a broken pipeline does not.
 export const MIN_DEVELOPMENTS_COVERAGE_RATIO = 0.1;
 
-// The higher floor once the freeze ran with the per-country GDELT index
+// The higher floor once the freeze runs with the per-country GDELT index
 // (#7748): the digest alone names roughly a third of indexed countries, the
-// index reaches most of the rest, so a capture that declares the index
-// available yet covers under 60% means the index served little (a
-// materializer that just restarted holds hours, not the week) or the top-up
-// broke — either way a tail the size of the old one must not ship green.
-// Not 100%: no article pool names every country every week, and a floor the
-// weekly refresh cannot clear is the #7615 mistake again.
+// index reaches most of the rest, so an index-era capture that covers under
+// 60% means the index served little (a materializer that just restarted
+// holds hours, not the week; an index that was down that morning) or the
+// top-up broke — either way a tail the size of the old one must not ship
+// green. The floor keys on the freeze having ATTEMPTED the index (the
+// snapshot carries coverage.developmentsCountryIndex at all), not on the
+// index having answered: a gate that relaxes exactly when the component it
+// protects fails is no gate (review of #7748). Not 100%: no article pool
+// names every country every week, and a floor the weekly refresh cannot
+// clear is the #7615 mistake again.
 export const MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX = 0.6;
+
+// Operator override for the floor. A failed floor throws away the week's
+// capture (the workflow verifies before it opens the PR), so a measured-but-
+// lower week — the first freeze after the materializer redeploys, an index
+// outage that morning — needs a way to publish without a code change:
+// `workflow_dispatch` with `developments_coverage_ratio`, which the workflow
+// passes through this variable. A malformed value throws rather than
+// silently keeping the default (a typo must not look like "no override").
+export const DEVELOPMENTS_COVERAGE_RATIO_ENV = 'CRAWLABLE_DEVELOPMENTS_COVERAGE_RATIO';
+export function resolveDevelopmentsCoverageRatioOverride(env = process.env) {
+  const raw = String(env?.[DEVELOPMENTS_COVERAGE_RATIO_ENV] ?? '').trim();
+  if (!raw) return null;
+  const ratio = Number(raw);
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 1) {
+    throw new Error(`${DEVELOPMENTS_COVERAGE_RATIO_ENV} must be a ratio in (0, 1], got ${JSON.stringify(raw)}`);
+  }
+  return ratio;
+}
 
 // Pipeline tripwire decision (#7615, retuned in #7620 follow-up), exported for
 // tests: the per-page guard proves frozen items render; this proves the capture
-// did not collapse. `countryIndexAvailable` is the snapshot's own declaration
-// (coverage.developmentsCountryIndex.state === 'available'), so a snapshot
-// frozen before the index existed keeps the collapse floor.
+// did not collapse. `countryIndexAttempted` is the snapshot's own declaration
+// (it carries coverage.developmentsCountryIndex), so a snapshot frozen before
+// the index existed keeps the collapse floor.
 export function assertDevelopmentsCoverage({
   carriesDevelopments,
   developmentsPageCount,
   indexedCountryPageCount,
-  countryIndexAvailable = false,
+  countryIndexAttempted = false,
+  ratioOverride = null,
 }) {
   if (!carriesDevelopments) return;
-  const ratio = countryIndexAvailable
-    ? MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX
-    : MIN_DEVELOPMENTS_COVERAGE_RATIO;
+  const ratio = ratioOverride
+    ?? (countryIndexAttempted ? MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX : MIN_DEVELOPMENTS_COVERAGE_RATIO);
   const floor = Math.max(1, Math.ceil(indexedCountryPageCount * ratio));
   if (developmentsPageCount < floor) {
     throw new Error(
       `crawlable corpus captured dated country developments for ${developmentsPageCount} `
       + `of ${indexedCountryPageCount} indexed country pages; expected at least ${floor}`
-      + (countryIndexAvailable ? ' with the per-country article index available' : '')
+      + (ratioOverride != null ? ` (operator override ${ratioOverride})` : countryIndexAttempted ? ' for an index-era capture' : '')
       + '. A snapshot that carries developments should cover far more than this — check the '
-      + (countryIndexAvailable
+      + (countryIndexAttempted
         ? 'per-country index top-up (coverage.developmentsCountryIndex) and the digest match '
         : 'digest match and the freeze service key ')
-      + 'before republishing.',
+      + `before republishing, or publish a measured-but-lower week with ${DEVELOPMENTS_COVERAGE_RATIO_ENV}.`,
     );
   }
 }
 
-/** Whether a frozen snapshot declares the per-country article index served during its freeze (#7748). */
-export function snapshotCountryIndexAvailable(livePulse) {
-  return livePulse?.coverage?.developmentsCountryIndex?.state === 'available';
+/** Whether a frozen snapshot's freeze attempted the per-country article index top-up (#7748), whatever it answered. */
+export function snapshotAttemptedCountryIndex(livePulse) {
+  const record = livePulse?.coverage?.developmentsCountryIndex;
+  return Boolean(record) && typeof record === 'object' && typeof record.state === 'string';
 }
 
 export function renderCountryPage({
@@ -5180,11 +5207,16 @@ export async function buildCorpus({
   // older committed snapshots (and the tests pinned to them) keep building.
   const snapshotCarriesDevelopments = Object.values(data.livePulse?.countries || {})
     .some((row) => row && typeof row === 'object' && 'developments' in row);
+  const coverageRatioOverride = resolveDevelopmentsCoverageRatioOverride();
+  if (coverageRatioOverride != null) {
+    console.warn(`[build-crawlable-corpus] developments coverage floor overridden to ${coverageRatioOverride} via ${DEVELOPMENTS_COVERAGE_RATIO_ENV}`);
+  }
   assertDevelopmentsCoverage({
     carriesDevelopments: snapshotCarriesDevelopments,
     developmentsPageCount,
     indexedCountryPageCount: data.countries.length,
-    countryIndexAvailable: snapshotCountryIndexAvailable(data.livePulse),
+    countryIndexAttempted: snapshotAttemptedCountryIndex(data.livePulse),
+    ratioOverride: coverageRatioOverride,
   });
 
   const chokepointHubRows = buildChokepointHubRows(data.chokepoints, data.livePulse);

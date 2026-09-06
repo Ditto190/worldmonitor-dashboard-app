@@ -23,6 +23,10 @@ export const MAX_ARTICLES_PER_COUNTRY = 10;
 // the contamination class that put a UN world-map vote on Togo's page.
 const MAX_COUNTRIES_PER_INDEXED_RECORD = 3;
 const MAX_INDEX_TITLE_CHARS = 200;
+// A URL is a link, not text: it cannot be truncated, so an over-long one is
+// refused. Bounds the key's worst case (the 5MB write ceiling) against a
+// tail of tracking-parameter URLs that would otherwise persist for a week.
+const MAX_INDEX_URL_CHARS = 512;
 const MAX_SOURCE_URLS = 5;
 const MAX_GKG_ZIP_BYTES = 15_000_000;
 // A real 15-minute GKG cohort measures ~17.7MB uncompressed (5.7MB zipped,
@@ -371,12 +375,56 @@ function mergeArticles(
     .slice(0, limit);
 }
 
+// ASCII-folded, lowercased words: the same token space for a GKG location
+// name ("Koror, Palau") and a page title, so the title check below needs no
+// matcher import (this file ships to Railway with only scripts/ packaged).
+function normalizeIndexText(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// The country names GKG itself attaches to a record's locations for one
+// code: the last comma segment of each location's full name ("Koror, Palau"
+// -> "palau", "Palau" -> "palau").
+function locationCountryNames(record, code) {
+  const names = new Set();
+  for (const location of Array.isArray(record?.locations) ? record.locations : []) {
+    const iso2 = GDELT_FIPS_TO_ISO2[String(location?.countryCode || '').trim().toUpperCase()];
+    if (iso2 !== code) continue;
+    const segment = String(location?.name || '').split(',').at(-1);
+    const name = normalizeIndexText(segment);
+    if (name.length >= 3) names.add(name);
+  }
+  return names;
+}
+
+// Whether the record's TITLE names the country, by GKG's own name for it.
+// The read side applies the shared matcher (aliases, demonyms) before a row
+// is published; this cheaper check only orders the index so the rows the
+// reader can publish are never evicted by location-only mentions ("Port
+// expansion approved" filed under Palau by a Koror dateline). It recalls
+// less than the matcher — "Palauan senate" is a location-only row here and
+// a publishable one there — which costs a row its rank, never its slot.
+function titleNamesCountry(title, names) {
+  if (names.size === 0) return false;
+  const haystack = ` ${normalizeIndexText(title)} `;
+  for (const name of names) {
+    if (haystack.includes(` ${name} `)) return true;
+  }
+  return false;
+}
+
 // Countries a GKG record names through V1LOCATIONS, FIPS mapped to ISO-2.
 // The primary country is the one with the most location mentions (ties go to
 // the first named); a record is indexed under a non-primary country only when
 // it names few countries in total. The read side still requires the title to
 // mention the country (shared/country-mention.js) before publishing a row —
-// this pass only decides which rows are worth a slot in the index.
+// this pass only decides which rows are worth a slot in the index, and
+// which of them rank first.
 export function recordCountryMentions(record) {
   const counts = new Map();
   for (const location of Array.isArray(record?.locations) ? record.locations : []) {
@@ -396,7 +444,12 @@ export function recordCountryMentions(record) {
   const countryCount = counts.size;
   return [...counts.keys()]
     .filter((code) => code === primary || countryCount <= MAX_COUNTRIES_PER_INDEXED_RECORD)
-    .map((code) => ({ code, primary: code === primary, countryCount }));
+    .map((code) => ({
+      code,
+      primary: code === primary,
+      countryCount,
+      titleMention: titleNamesCountry(record.title, locationCountryNames(record, code)),
+    }));
 }
 
 function countryIndexRow(record, mention) {
@@ -408,27 +461,34 @@ function countryIndexRow(record, mention) {
     tone: Number.isFinite(record.tone) ? record.tone : 0,
     primary: mention.primary,
     countryCount: mention.countryCount,
+    titleMention: mention.titleMention,
   };
 }
 
 function isCountryIndexRow(row, cutoffMs) {
   if (!row || typeof row !== 'object') return false;
-  if (typeof row.url !== 'string' || !row.url || typeof row.title !== 'string' || !row.title) return false;
+  if (typeof row.url !== 'string' || !row.url || row.url.length > MAX_INDEX_URL_CHARS) return false;
+  if (typeof row.title !== 'string' || !row.title) return false;
   const dateMs = gdeltSeenDateToMs(row.date);
   return Number.isFinite(dateMs) && dateMs >= cutoffMs;
 }
 
+// Title mentions first (the rows a reader can publish), then primary
+// mentions, then newest. Without the first tier, ten fresh datelines from a
+// country evict the one article actually about it (review of #7748).
 function compareCountryIndexRows(a, b) {
-  return Number(Boolean(b.primary)) - Number(Boolean(a.primary))
+  return Number(Boolean(b.titleMention)) - Number(Boolean(a.titleMention))
+    || Number(Boolean(b.primary)) - Number(Boolean(a.primary))
     || gdeltSeenDateToMs(b.date) - gdeltSeenDateToMs(a.date)
     || a.url.localeCompare(b.url);
 }
 
 /**
  * Rolling per-country index of GKG articles: `byCountry[ISO2]` holds up to
- * MAX_ARTICLES_PER_COUNTRY rows inside GDELT_COUNTRY_INDEX_WINDOW_MS, primary
- * mentions first and newest first within a tier. Fresh records win a URL tie
- * against the previous index so a re-seen article carries its latest title.
+ * MAX_ARTICLES_PER_COUNTRY rows inside GDELT_COUNTRY_INDEX_WINDOW_MS, title
+ * mentions first, then primary mentions, newest first within a tier. Fresh
+ * records win a URL tie against the previous index so a re-seen article
+ * carries its latest title.
  */
 export function buildGdeltCountryIndex({ records, previous = null, nowMs = Date.now() }) {
   const cutoff = nowMs - GDELT_COUNTRY_INDEX_WINDOW_MS;
