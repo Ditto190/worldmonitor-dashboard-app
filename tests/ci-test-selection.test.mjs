@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 
 const root = resolve(import.meta.dirname, '..');
@@ -98,6 +99,22 @@ test('unusable, incomplete and moved diff metadata runs every Test job', () => {
     const result = classify(files, options);
     assert.ok(Object.values(result).every((value) => value === 'true'), JSON.stringify({ files: files.slice(0, 2), options, result }));
     assert.equal(Object.keys(result).length, Object.keys(workflow.jobs.changes.outputs).length);
+  }
+});
+
+test('resilience-validation-smoke runs only for validation changes that skip unit', () => {
+  const job = workflow.jobs['resilience-validation-smoke'];
+  const runs = (outputs) => runInNewContext(job.if, { needs: { changes: { outputs } } }, { timeout: 1000 });
+  const validationDoc = 'docs/methodology/country-resilience-index/validation/benchmark.md';
+  for (const event of ['pull_request', 'push']) {
+    const docsOnly = classify([validationDoc], { event });
+    assert.equal(docsOnly.validation, 'true');
+    assert.equal(docsOnly.code, 'false');
+    assert.equal(runs(docsOnly), true, `${event}: unit is skipped, so this job is the only run of the validation suite`);
+    const withCode = classify([validationDoc, 'scripts/_bundle-runner.mjs'], { event });
+    assert.equal(withCode.validation, 'true');
+    assert.equal(withCode.code, 'true');
+    assert.equal(runs(withCode), false, `${event}: unit already runs the same files inside test:data`);
   }
 });
 

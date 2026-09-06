@@ -929,11 +929,12 @@ jobs:
 
   # The focused suite is already inside `unit` / test:data. This job exists
   # only for validation-docs PRs that skip `unit` (docs/ is carved out of
-  # `code`). Running it on every code PR paid a second npm ci for the same
-  # files.
+  # `code`). `validation` alone also fired on every code PR and push, paying
+  # a second npm ci for files unit had just run, so it is gated on `code` as
+  # well (#7772); deploy-gate counts the resulting skip as passing.
   resilience-validation-smoke:
     needs: changes
-    if: needs.changes.outputs.validation == 'true'
+    if: needs.changes.outputs.validation == 'true' && needs.changes.outputs.code != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
