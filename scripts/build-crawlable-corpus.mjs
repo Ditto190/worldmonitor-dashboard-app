@@ -5061,6 +5061,7 @@ export async function buildCorpus({
       const pagePath = `/crises/${crisis.slug}/`;
       return {
         '@type': 'Dataset',
+        '@id': `${absoluteUrl(baseUrl, pagePath)}#crisis-dataset`,
         name: crisis.title,
         description: crisis.description,
         url: absoluteUrl(baseUrl, pagePath),
@@ -5075,6 +5076,7 @@ export async function buildCorpus({
     {
       '@type': 'Dataset',
       name: `${convergenceMetricName} reference`,
+      '@id': `${absoluteUrl(baseUrl, '/tools/signal-convergence/')}#signal-convergence-dataset`,
       description: `World Monitor's ${convergenceMetricName} (0-100) names when protests, military flights, naval vessels, and earthquakes co-occur in the same 1° cell.`,
       url: absoluteUrl(baseUrl, '/tools/signal-convergence/'),
       keywords: ['signal convergence', 'geographic correlation', 'early warning'],

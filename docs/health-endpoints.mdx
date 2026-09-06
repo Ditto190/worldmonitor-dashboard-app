@@ -515,6 +515,10 @@ degraded.
 
 ### Staleness Thresholds (maxStaleMin)
 
+Earthquake ingestion retries transient USGS or NRCan failures once. The internal `seismology:earthquakes:providers:v1` snapshot keeps each provider's parsed observations and original success clock separately. A failed provider can contribute last-good coverage for less than 30 minutes, provided its content is still within the existing 48-hour budget. Fresh events from the other provider continue to publish.
+
+The first exhausted transient failure remains visible as pending only with usable coverage from both providers. Its deadline is the earlier of 10 minutes after the first failed run or 30 minutes after the oldest provider success. A second failed run for that provider warns immediately. Missing, malformed, expired, or permanently failed coverage earns no pending period. Polling health cannot reset the deadline, and a successful provider fetch resets only that provider's failure streak. The five-minute cron and existing freshness thresholds are unchanged.
+
 Selected thresholds from `SEED_META`:
 
 | Domain | Max Stale (min) | Notes |
