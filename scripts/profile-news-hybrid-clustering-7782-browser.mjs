@@ -95,16 +95,21 @@ async function measurePage(page, items, samples) {
       /* longtask unsupported */
     }
 
+    const clusteringApi = globalThis.NewsClustering;
+    if (typeof clusteringApi?.clusterNewsCore !== 'function') {
+      throw new Error('NewsClustering bundle did not export clusterNewsCore');
+    }
+
     const yieldTick = () => new Promise((resolve) => setTimeout(resolve, 0));
     await yieldTick();
     const clusteringLongTasksBefore = longtasks.length;
     const syncTimings = [];
     let clusterCount = 0;
-    NewsClustering.clusterNewsCore(news, () => 4);
+    clusteringApi.clusterNewsCore(news, () => 4);
     await yieldTick();
     for (let i = 0; i < sampleCount; i++) {
       const start = performance.now();
-      const clusters = NewsClustering.clusterNewsCore(news, () => 4);
+      const clusters = clusteringApi.clusterNewsCore(news, () => 4);
       syncTimings.push(performance.now() - start);
       clusterCount = clusters.length;
       await yieldTick();
