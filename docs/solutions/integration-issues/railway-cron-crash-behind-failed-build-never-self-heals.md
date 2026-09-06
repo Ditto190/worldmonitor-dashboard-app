@@ -71,7 +71,7 @@ fredRatesSeeder:   { key: 'seed-meta:economic:fred-rates', maxStaleMin: 180, min
 
 ## Solution
 
-### Operational remediation (PENDING as of 2026-09-05 evening)
+### Operational remediation
 
 ```bash
 railway redeploy --service seed-fred-rates --from-source -y
@@ -79,7 +79,7 @@ railway redeploy --service seed-fred-rates --from-source -y
 
 This creates a fresh build at head. When it succeeds it becomes both the latest *and* the active deployment, and the hourly cron resumes ticking on it. The `--from-source` flag matters: issue #5288 found that a bare `railway redeploy` re-runs the latest deployment's own commit, which here would be the failed build.
 
-**Status: not applied.** The command was attempted in the diagnosing session and blocked by that session's auto-mode permission classifier, so it remained unapplied as of 2026-09-05 evening. Anyone reading this doc while `seed-fred-rates` is still dark should run it first and verify, not assume it landed.
+**Status: applied 2026-09-06.** The diagnosing session could not run the command (its permission classifier blocked it), so the cron stayed dark through the 19:00Z and 20:00Z ticks. A rebuild from source landed at 02:55 UTC on 2026-09-06 as deployment `df49be50-d21d-4ed3-a9d5-b6167fd6cd9f` at the commit for #7760. No watched path had changed, so this was not a push-triggered build. Its 03:03 UTC tick wrote all 24 series, ended with `=== Done (16918ms) ===`, and refreshed `seed-meta:economic:fred-rates`. The outage lasted from 18:08 UTC to 03:03 UTC.
 
 Verification, in order:
 
