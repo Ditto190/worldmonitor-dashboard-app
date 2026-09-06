@@ -76,7 +76,7 @@ Example wire payload (case 1):
 ```json
 {
   "jsonrpc": "2.0",
-  "id": null,
+  "id": 7,
   "error": {
     "code": -32001,
     "message": "Authentication required. Use OAuth (/oauth/token) or pass your API key via X-WorldMonitor-Key header.",
@@ -106,7 +106,7 @@ The entitlement denials are HTTP **403**, `Cache-Control: no-store`, and **no** 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": null,
+  "id": 7,
   "error": {
     "code": -32002,
     "message": "Subscription lapsed. Re-authenticating will not help — resubscribe to restore access.",
@@ -132,7 +132,7 @@ Content-Type: application/json
 ```json
 {
   "jsonrpc": "2.0",
-  "id": null,
+  "id": 7,
   "error": {
     "code": -32002,
     "message": "This tool requires a WorldMonitor Pro subscription.",
@@ -194,7 +194,9 @@ The `message` text identifies which limiter fired. Three distinct strings:
 
 `<limit>` in the per-user string is your own plan's burst, not a constant. It is **60** on Pro, Pro Business and API Starter, **300** on API Business, **1,000** on Enterprise, and **60** when the entitlement cannot be read. Parse the number out of the message if you want it, or read it from the [plans table](/mcp-overview#plans-&-limits). The other two strings are genuinely fixed at 60, because neither the legacy operator-key limiter nor the anonymous discovery limiter is plan-resolved.
 
-Every per-minute denial echoes your JSON-RPC `id` exactly — string or number, `0` included — so it satisfies the MCP schema's `RequestId` union and your client can settle the pending request as a rate-limit error instead of failing response validation. Two cases have no `id` to echo and keep `"id": null`: the `GET /mcp` SSE replay channel, which carries no JSON-RPC body at all, and a **notification** (a request sent with no `id`, such as `notifications/initialized`) — a notification that is rate-limited gets the error envelope rather than its usual bodyless `202`, and by definition has no id to correlate.
+Every per-minute denial **from this server (`/mcp`)** echoes your JSON-RPC `id` exactly — string or number, `0` included — so it satisfies the MCP schema's `RequestId` union and your client can settle the pending request as a rate-limit error instead of failing response validation. Two cases have no `id` to echo and keep `"id": null`: the `GET /mcp` SSE replay channel, which carries no JSON-RPC body at all, and a **notification** (a request sent with no `id`, such as `notifications/initialized`) — a notification that is rate-limited gets the error envelope rather than its usual bodyless `202`, and by definition has no id to correlate.
+
+The scope of that guarantee is deliberate. The separate [docs MCP server](/agent-discovery) at `/api/docs-mcp` and the A2A endpoint at `/api/a2a` also answer `-32029`, but their limiters run *before* the request body is parsed, so they have no id in hand and still reply `"id": null`. Handle a null id defensively when you integrate against those two endpoints.
 
 Example payload (per-user variant, API Business):
 
@@ -272,7 +274,7 @@ The code is also reused at **HTTP 413** for a request body over the 256 KiB cap 
 ```json
 {
   "jsonrpc": "2.0",
-  "id": null,
+  "id": 7,
   "error": { "code": -32600, "message": "Invalid request: missing method" }
 }
 ```
@@ -337,7 +339,7 @@ Four distinct conditions share this code; the HTTP status (and, for billing veri
 ```json
 {
   "jsonrpc": "2.0",
-  "id": null,
+  "id": 7,
   "error": { "code": -32603, "message": "Auth service temporarily unavailable. Try again." }
 }
 ```

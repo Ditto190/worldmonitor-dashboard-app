@@ -810,6 +810,7 @@ export async function applyPerMinuteLimit(
   if (context.kind === 'env_key') {
     const rl = getMcpRatelimit();
     if (!rl) return null;
+    let denied = false;
     try {
       const { success } = await rl.limit(`key:${context.apiKey}`);
       if (!success) {
@@ -820,9 +821,16 @@ export async function applyPerMinuteLimit(
           limit: MCP_DEFAULT_BURST_PER_MINUTE,
           windowSeconds: 60,
         });
-        return rpcError(id, -32029, `Rate limit exceeded. Max ${MCP_DEFAULT_BURST_PER_MINUTE} requests per minute per API key.`, headers);
+        denied = true;
       }
     } catch { /* graceful degradation */ }
+    // Built OUTSIDE the fail-open catch (#7818). `rpcError` JSON-stringifies the
+    // caller-supplied `id`; leaving that inside a catch whose recovery is "allow
+    // the request unmetered" would turn a serialization throw into a silent
+    // rate-limit bypass. The id is validated upstream, so this is defence in
+    // depth for a future caller, not a live bug — but the limiter decision and
+    // the response construction do not belong under one catch-all.
+    if (denied) return rpcError(id, -32029, `Rate limit exceeded. Max ${MCP_DEFAULT_BURST_PER_MINUTE} requests per minute per API key.`, headers);
     return null;
   }
   if (context.kind === 'free') {
@@ -836,6 +844,7 @@ export async function applyPerMinuteLimit(
   }
   const rl = getMcpProMinRatelimit(perMinute);
   if (!rl) return null;
+  let denied = false;
   try {
     const { success } = await rl.limit(`pro-user:${context.userId}`);
     if (!success) {
@@ -848,9 +857,11 @@ export async function applyPerMinuteLimit(
         limit: perMinute,
         windowSeconds: 60,
       });
-      return rpcError(id, -32029, `Rate limit exceeded. Max ${perMinute} requests per minute per user.`, headers);
+      denied = true;
     }
   } catch { /* graceful degradation */ }
+  // Outside the fail-open catch — see the env_key branch above.
+  if (denied) return rpcError(id, -32029, `Rate limit exceeded. Max ${perMinute} requests per minute per user.`, headers);
   return null;
 }
 
@@ -871,10 +882,13 @@ export async function applyAnonDiscoveryLimit(
 ): Promise<Response | null> {
   const rl = getMcpAnonRatelimit();
   if (!rl) return null;
+  let denied = false;
   try {
     const { success } = await rl.limit(`ip:${getClientIp(req)}`);
-    if (!success) return rpcError(id, -32029, 'Rate limit exceeded. Max 60 unauthenticated discovery requests per minute per IP.', headers);
+    denied = !success;
   } catch { /* graceful degradation */ }
+  // Outside the fail-open catch — see `applyPerMinuteLimit`'s env_key branch.
+  if (denied) return rpcError(id, -32029, 'Rate limit exceeded. Max 60 unauthenticated discovery requests per minute per IP.', headers);
   return null;
 }
 

@@ -246,6 +246,21 @@ describe('#7818 — branches with no request id stay null', () => {
     assert.equal(body.error.code, -32600);
   });
 
+  it('an over-cap id is rejected BEFORE the limiter can echo it', async () => {
+    // Load-bearing ordering, not a nicety: the denial envelope now serializes a
+    // caller-supplied id, so the 256-byte cap in `validJsonRpcId` has to run
+    // first or a hostile id would be reflected back on a cheap unauthenticated
+    // path. Proving the code is -32600 is not enough — the limiter must never
+    // even be consulted, so an id that failed validation cannot reach `rpcError`
+    // through some future branch.
+    deniedKeyPrefixes = [ANON_KEYS];
+    const res = await mcpHandler(anonPost({ jsonrpc: '2.0', id: 'x'.repeat(257), method: 'tools/list' }));
+    const body = await res.json();
+    assert.equal(body.error.code, -32600, 'an over-cap id is a malformed request, not a rate-limit hit');
+    assert.equal(body.id, null, 'a rejected id must never be echoed');
+    assert.deepEqual(limiterCalls, [], 'id validation must precede the limiter, not follow it');
+  });
+
   it('both limiters default to a null id when a caller passes none', async () => {
     deniedKeyPrefixes = [ANON_KEYS, PRO_MIN_KEYS];
     const anon = await applyAnonDiscoveryLimit(new Request(BASE_URL, { headers: { 'x-real-ip': '203.0.113.1' } }), {});
