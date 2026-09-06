@@ -10,6 +10,7 @@ import {
   isLayerToggleAllowed,
   isLayerEntitled,
   sanitizeLockedLayers,
+  sanitizeResilienceScoreForRenderer,
   shouldSanitizeLockedLayers,
   type RendererKind,
 } from '@/config/map-layer-definitions';
@@ -67,7 +68,6 @@ import type { ScenarioVisualState, ScenarioResult } from '@/config/scenario-temp
 import { getAuthState } from '@/services/auth-state';
 import { hasPremiumAccess } from '@/services/panel-gating';
 import { trackGateHit } from '@/services/analytics';
-import { sanitizeResilienceScoreForRenderer } from './resilience-choropleth-utils';
 
 export type { ScenarioVisualState, ScenarioResult };
 

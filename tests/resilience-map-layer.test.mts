@@ -5,6 +5,7 @@ import { PREMIUM_RPC_PATHS } from '../src/shared/premium-paths';
 import {
   LAYER_REGISTRY,
   getAllowedLayerKeys,
+  sanitizeResilienceScoreForRenderer,
 } from '../src/config/map-layer-definitions';
 import {
   RESILIENCE_CHOROPLETH_COLORS,
@@ -12,7 +13,6 @@ import {
   formatResilienceChoroplethLevel,
   getResilienceChoroplethLevel,
   normalizeExclusiveChoropleths,
-  sanitizeResilienceScoreForRenderer,
 } from '../src/components/resilience-choropleth-utils';
 
 describe('resilience map layer contracts', () => {

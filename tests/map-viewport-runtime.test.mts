@@ -53,6 +53,10 @@ before(async () => {
             export const sanitizeLockedLayers = (layers) => layers;
             export const shouldSanitizeLockedLayers = () => false;
             export const getLayersForVariant = () => [];
+            export const sanitizeResilienceScoreForRenderer = (layers, isDeckGLActive) =>
+              layers.resilienceScore && !isDeckGLActive
+                ? { ...layers, resilienceScore: false }
+                : layers;
             export const resolveLayerLabel = (key) => key;
             export const bindLayerSearch = () => () => {};
             export const getLayerExplanation = () => null;
