@@ -9,6 +9,7 @@ import {
   writeExtraKey,
   writeExtraKeyWithMeta,
 } from './_seed-utils.mjs';
+import { getOptionalUpstashCreds, upstashCommand } from './_upstash-rest.mjs';
 import {
   extractGdeltBulkCsv,
   GDELT_BULK_TOPICS,
@@ -75,6 +76,38 @@ const ARTICLES_TTL = 2 * 86_400;
 // a week-old index as current.
 const COUNTRY_ARTICLES_TTL = ARTICLES_TTL;
 const POSITIVE_EVENTS_META_KEY = 'seed-meta:positive-events:geo';
+// The index has no dashboard consumer — only the search route's country form
+// and the weekly freeze read it — so it is a standalone health dataset
+// (AGENTS.md): published with its own seed-meta record and gated in
+// api/health.js at the same 45-minute budget as the canonical intel key,
+// or an evicted or stale index would stay invisible until the next Monday's
+// freeze answered `seed-unavailable` and failed its coverage floor.
+export const COUNTRY_ARTICLES_META_KEY = 'seed-meta:gdelt:bulk:country-articles';
+// Durable activation marker (no TTL), SET after the first successful index
+// publish. api/health.js reads the probe as pending until it exists, so the
+// window between this deploy and the materializer's first tick is not a
+// crit, and strict afterwards — a marker that cannot expire is what keeps a
+// materializer that published once and died from reading as pending again.
+export const COUNTRY_ARTICLES_ACTIVATION_KEY = 'seed-activated:gdelt:bulk:country-articles';
+
+/** Rows across every country in the index — the seed-meta recordCount health reads. */
+export function countryIndexRecordCount(index) {
+  const byCountry = index?.byCountry && typeof index.byCountry === 'object' ? index.byCountry : {};
+  return Object.values(byCountry).reduce((total, rows) => total + (Array.isArray(rows) ? rows.length : 0), 0);
+}
+
+// Best-effort by design (mirrors seed-cbr-rates): failing to write the marker
+// must not degrade a run that already published good data. The cost of a
+// miss is one more tick of pending, not a wrong verdict.
+async function writeCountryIndexActivation() {
+  try {
+    const creds = getOptionalUpstashCreds();
+    if (!creds) return;
+    await upstashCommand(creds, ['SET', COUNTRY_ARTICLES_ACTIVATION_KEY, '1']);
+  } catch (error) {
+    console.warn(`  WARN: country-index activation marker write failed: ${error?.message || error}`);
+  }
+}
 
 function timelineKey(series, topic) {
   return `gdelt:intel:${series}:${topic}`;
@@ -488,6 +521,7 @@ export async function afterPublish(data, _meta, deps = {}) {
   const {
     _writeExtraKey = writeExtraKey,
     _writeExtraKeyWithMeta = writeExtraKeyWithMeta,
+    _writeActivationMarker = writeCountryIndexActivation,
   } = deps;
   const outputOperations = Object.entries(data._timelines ?? {}).flatMap(
     ([topic, series]) => [
@@ -523,8 +557,14 @@ export async function afterPublish(data, _meta, deps = {}) {
       run: () => _writeExtraKey(GDELT_BULK_ARTICLES_KEY, data._reference, ARTICLES_TTL),
     },
     {
-      label: GDELT_BULK_COUNTRY_ARTICLES_KEY,
-      run: () => _writeExtraKey(GDELT_BULK_COUNTRY_ARTICLES_KEY, data._countryIndex, COUNTRY_ARTICLES_TTL),
+      label: COUNTRY_ARTICLES_META_KEY,
+      run: () => _writeExtraKeyWithMeta(
+        GDELT_BULK_COUNTRY_ARTICLES_KEY,
+        data._countryIndex,
+        COUNTRY_ARTICLES_TTL,
+        countryIndexRecordCount(data._countryIndex),
+        COUNTRY_ARTICLES_META_KEY,
+      ),
     },
     {
       label: POSITIVE_EVENTS_META_KEY,
@@ -548,6 +588,14 @@ export async function afterPublish(data, _meta, deps = {}) {
   const settled = await Promise.allSettled(
     outputOperations.map(({ run }) => Promise.resolve().then(run)),
   );
+  // The index's marker depends only on the index's own publish (data and
+  // seed-meta both landed), not on its siblings: a failed unrest write must
+  // not keep the country probe pending, and a failed index write must not
+  // activate it.
+  const countryIndexResult = settled[outputOperations.findIndex(({ label }) => label === COUNTRY_ARTICLES_META_KEY)];
+  if (countryIndexResult?.status === 'fulfilled' && countryIndexResult.value !== false) {
+    await _writeActivationMarker();
+  }
   const failures = settled.flatMap((result, index) => {
     if (result.status === 'rejected') return [result.reason];
     if (result.value === false) {
@@ -611,6 +659,7 @@ export const RUN_SEED_OPTS = {
     { key: GDELT_BULK_UNREST_KEY, ttlSeconds: UNREST_TTL },
     { key: GDELT_BULK_ARTICLES_KEY, ttlSeconds: ARTICLES_TTL },
     { key: GDELT_BULK_COUNTRY_ARTICLES_KEY, ttlSeconds: COUNTRY_ARTICLES_TTL },
+    { key: COUNTRY_ARTICLES_META_KEY, ttlSeconds: TIMELINE_TTL },
     { key: POSITIVE_EVENTS_RPC_KEY, ttlSeconds: POSITIVE_TTL },
     { key: POSITIVE_EVENTS_BOOTSTRAP_KEY, ttlSeconds: POSITIVE_TTL },
     { key: POSITIVE_EVENTS_META_KEY, ttlSeconds: TIMELINE_TTL },
