@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import { lua, lauxlib, lualib, to_luastring, to_jsstring } from 'fengari';
 
 import type { GetCableHealthResponse } from '../src/generated/server/worldmonitor/infrastructure/v1/service_server';
 import { getCachedJson, __resetKeyPrefixCacheForTests } from '../server/_shared/redis';
 import { getCableHealth } from '../server/worldmonitor/infrastructure/v1/get-cable-health';
 import { __testing__ as health } from '../api/health.js';
 import { cableHealthToDigestInput } from '../shared/analysis-composite-adapters';
+import { sidecarCacheGet, sidecarCacheSet } from '../server/_shared/sidecar-cache';
 
 const CACHE_KEY = 'cable-health-v1';
 const NGA_CACHE_KEY = 'cable-health-nga-warnings-v2';
@@ -14,6 +16,55 @@ const NEG_SENTINEL = '__WM_NEG__';
 const originalFetch = globalThis.fetch;
 const originalNow = Date.now;
 const originalEnv = new Map<string, string | undefined>();
+
+// Execute the emitted Lua, with only Redis commands replaced by the fixture store.
+function runRepairCommand(command: string[], call: (args: string[]) => unknown) {
+  assert.equal(command[0], 'EVAL');
+  assert.equal(command[2], '2');
+  const state = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(state);
+  const push = (value: unknown) => {
+    if (Array.isArray(value)) {
+      lua.lua_createtable(state, value.length, 0);
+      value.forEach((item, index) => { push(item); lua.lua_seti(state, -2, index + 1); });
+    } else if (value == null) lua.lua_pushboolean(state, false);
+    else if (typeof value === 'number') lua.lua_pushnumber(state, value);
+    else lua.lua_pushstring(state, to_luastring(String(value)));
+  };
+  try {
+    push(command.slice(3, 5));
+    lua.lua_setglobal(state, to_luastring('KEYS'));
+    push(command.slice(5));
+    lua.lua_setglobal(state, to_luastring('ARGV'));
+    lua.lua_createtable(state, 0, 1);
+    lua.lua_pushjsfunction(state, () => {
+      const args = Array.from({ length: lua.lua_gettop(state) }, (_, i) => to_jsstring(lua.lua_tostring(state, i + 1)));
+      try { push(call(args)); } catch (error) { return lauxlib.luaL_error(state, to_luastring(String(error))); }
+      return 1;
+    });
+    lua.lua_setfield(state, -2, to_luastring('call'));
+    lua.lua_setglobal(state, to_luastring('redis'));
+    const loaded = lauxlib.luaL_loadstring(state, to_luastring(command[1]!));
+    const status = loaded === lua.LUA_OK ? lua.lua_pcall(state, 0, 1, 0) : loaded;
+    return status === lua.LUA_OK
+      ? { result: lua.lua_tonumber(state, -1) }
+      : { error: to_jsstring(lua.lua_tostring(state, -1)) };
+  } finally {
+    lua.lua_close(state);
+  }
+}
+
+function simpleRepairResponse(body: unknown, store: Map<string, unknown>) {
+  const commands = JSON.parse(String(body)) as string[][];
+  return Response.json(commands.map((command) => runRepairCommand(command, ([verb, key, value]) => {
+    if (verb === 'GET') return store.has(key!) ? JSON.stringify(store.get(key!)) : null;
+    if (verb === 'TIME') return [String(Math.floor(Date.now() / 1000)), String((Date.now() % 1000) * 1000)];
+    if (verb === 'PEXPIREAT') return 1;
+    assert.equal(verb, 'SET');
+    store.set(key!, JSON.parse(value!));
+    return 'OK';
+  })));
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -33,7 +84,7 @@ function currentNgaDate() {
 
 describe('getCableHealth cache publication', { concurrency: 1 }, () => {
   beforeEach(() => {
-    for (const key of ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'VERCEL_ENV', 'VERCEL_GIT_COMMIT_SHA']) {
+    for (const key of ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'VERCEL_ENV', 'VERCEL_GIT_COMMIT_SHA', 'LOCAL_API_MODE']) {
       originalEnv.set(key, process.env[key]);
     }
     process.env.UPSTASH_REDIS_REST_URL = 'https://redis.cable-health.test';
@@ -63,6 +114,7 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
 
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
+      if (url === 'https://redis.cable-health.test/pipeline') return simpleRepairResponse(init?.body, store);
       if (url.startsWith('https://redis.cable-health.test/get/')) {
         const key = decodeURIComponent(url.slice('https://redis.cable-health.test/get/'.length));
         const value = store.get(key);
@@ -130,6 +182,7 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
 
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
+      if (url === 'https://redis.cable-health.test/pipeline') return simpleRepairResponse(init?.body, store);
       if (url.startsWith('https://redis.cable-health.test/get/')) {
         const key = decodeURIComponent(url.slice('https://redis.cable-health.test/get/'.length));
         const value = store.get(key);
@@ -164,25 +217,45 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
     let upstreamGate: Promise<void> | undefined;
     let upstreamStarted = deferred<void>();
     let rejectPublication = false;
+    let rejectMetadata = false;
+    const writes = new Map<string, number>();
+    let beforeRepair: (() => void) | undefined;
     const read = (key: string) => {
       const entry = store.get(key);
       return entry && entry.expiresAt > now ? JSON.parse(entry.value) : null;
     };
+    const callRedis = ([command, key, value, expiryKind, seconds, condition]: string[]) => {
+      if (command === 'GET') return read(key!) === null ? null : store.get(key!)!.value;
+      if (command === 'TIME') return [String(Math.floor(now / 1000)), String((now % 1000) * 1000)];
+      if (command === 'PEXPIREAT') {
+        const entry = store.get(key!);
+        if (!entry || read(key!) === null) return 0;
+        entry.expiresAt = Number(value);
+        return 1;
+      }
+      assert.equal(command, 'SET');
+      assert.equal(expiryKind, 'EX');
+      writes.set(key!, (writes.get(key!) ?? 0) + 1);
+      if (key === CACHE_KEY && rejectPublication) throw new Error('fixture write failed');
+      if (key === META_KEY && rejectMetadata) throw new Error('fixture metadata write failed');
+      if (condition === 'NX' && read(key) !== null) return null;
+      store.set(key!, { value: value!, expiresAt: now + Number(seconds) * 1000 });
+      return 'OK';
+    };
     Date.now = () => now;
     globalThis.fetch = (async (input, init) => {
       const url = String(input);
+      if (url === 'https://redis.cable-health.test/pipeline') {
+        beforeRepair?.();
+        return Response.json((JSON.parse(String(init?.body)) as string[][]).map((command) => runRepairCommand(command, callRedis)));
+      }
       if (url.startsWith('https://redis.cable-health.test/get/')) {
         const value = read(decodeURIComponent(url.split('/get/')[1]!));
         return Response.json({ result: value === null ? null : JSON.stringify(value) });
       }
       if (url === 'https://redis.cable-health.test/') {
-        const [command, key, value, expiryKind, seconds, condition] = JSON.parse(String(init?.body));
-        assert.equal(command, 'SET');
-        assert.equal(expiryKind, 'EX');
-        if (key === CACHE_KEY && rejectPublication) return Response.json({ error: 'fixture write failed' });
-        if (condition === 'NX' && read(key) !== null) return Response.json({ result: null });
-        store.set(key, { value, expiresAt: now + Number(seconds) * 1000 });
-        return Response.json({ result: 'OK' });
+        try { return Response.json({ result: callRedis(JSON.parse(String(init?.body))) }); }
+        catch (error) { return Response.json({ error: String(error) }); }
       }
       if (url.startsWith('https://msi.nga.mil/')) {
         upstreamStarted.resolve();
@@ -192,7 +265,7 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
       throw new Error(`unexpected fetch: ${url}`);
     }) as typeof fetch;
     return {
-      start, store, read,
+      start, store, read, writes,
       advance(minutes: number) { now = start + minutes * 60_000; },
       failUpstream() { upstreamAvailable = false; store.delete(NGA_CACHE_KEY); },
       gateUpstream(gate: Promise<void>) {
@@ -202,6 +275,8 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
         return upstreamStarted.promise;
       },
       failPublication() { rejectPublication = true; },
+      failMetadata(fail: boolean) { rejectMetadata = fail; },
+      beforeRepair(callback: () => void) { beforeRepair = callback; },
       verdict() {
         const payload = read(CACHE_KEY);
         return health.classifyKey('cableHealth', CACHE_KEY, { allowOnDemand: false }, {
@@ -227,6 +302,89 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
     const second = await getCableHealth({} as never, {} as never);
     assert.ok(second.generatedAt > first.generatedAt, 'recompute at 30 minutes despite retained data');
     assert.equal(f.read(META_KEY).fetchedAt, second.generatedAt);
+  });
+
+  it('migrates a legacy cache hit to its original 90-minute deadline', async () => {
+    const f = clockFixture();
+    const first = await getCableHealth({} as never, {} as never);
+    f.store.get(CACHE_KEY)!.expiresAt = f.start + 30 * 60_000;
+    f.advance(29);
+    assert.deepEqual(await getCableHealth({} as never, {} as never), first);
+    assert.equal(f.store.get(CACHE_KEY)!.expiresAt, f.start + 90 * 60_000);
+    assert.equal(f.read(META_KEY).fetchedAt, first.generatedAt);
+    f.advance(31);
+    assert.equal(f.verdict().status, 'OK');
+  });
+
+  it('repairs an unconfirmed metadata write on the next cache hit without renewing its clock', async () => {
+    const f = clockFixture();
+    f.failMetadata(true);
+    const first = await getCableHealth({} as never, {} as never);
+    assert.deepEqual(f.read(CACHE_KEY), first);
+    assert.equal(f.read(META_KEY), null);
+    assert.equal(f.verdict().status, 'STALE_SEED');
+    f.failMetadata(false);
+    f.advance(1);
+    assert.deepEqual(await getCableHealth({} as never, {} as never), first);
+    assert.equal(f.read(META_KEY)?.fetchedAt, first.generatedAt);
+    assert.equal(f.verdict().status, 'OK');
+  });
+
+  it('coalesces concurrent refreshes even when the NGA cache is already populated', async () => {
+    const f = clockFixture();
+    await getCableHealth({} as never, {} as never);
+    assert.ok(f.read(NGA_CACHE_KEY));
+    f.writes.clear();
+    f.advance(31);
+    const responses = await Promise.all(Array.from({ length: 8 }, () => getCableHealth({} as never, {} as never)));
+    assert.equal(f.writes.get(CACHE_KEY), 1, 'one canonical publication for the whole refresh');
+    assert.equal(f.writes.get(META_KEY), 1, 'one metadata publication for the whole refresh');
+    assert.ok(responses.every((response) => response === responses[0]), 'callers share the same refresh result');
+    assert.equal(f.verdict().status, 'OK');
+  });
+
+  it('cannot repair an old cache hit over a newer snapshot and its metadata', async () => {
+    const f = clockFixture();
+    await getCableHealth({} as never, {} as never);
+    f.advance(1);
+    const winner = { generatedAt: Date.now(), cables: {} };
+    const deadline = Date.now() + 90 * 60_000;
+    f.beforeRepair(() => {
+      f.store.set(CACHE_KEY, { value: JSON.stringify(winner), expiresAt: deadline });
+      f.store.set(META_KEY, { value: JSON.stringify({ fetchedAt: winner.generatedAt, recordCount: 0 }), expiresAt: Infinity });
+    });
+    await getCableHealth({} as never, {} as never);
+    assert.deepEqual(f.read(CACHE_KEY), winner);
+    assert.equal(f.store.get(CACHE_KEY)!.expiresAt, deadline);
+    assert.equal(f.read(META_KEY).fetchedAt, winner.generatedAt);
+  });
+
+  it('rejects a delayed repair after the original retention deadline', async () => {
+    const f = clockFixture();
+    const first = await getCableHealth({} as never, {} as never);
+    f.store.delete(META_KEY);
+    f.store.get(CACHE_KEY)!.expiresAt = Infinity;
+    f.advance(1);
+    f.beforeRepair(() => f.advance(90));
+    await getCableHealth({} as never, {} as never);
+    assert.deepEqual(f.read(CACHE_KEY), first, 'late repair makes no cache mutation');
+    assert.equal(f.read(META_KEY), null, 'late repair cannot claim a successful observation');
+  });
+
+  it('repairs legacy sidecar cache hits without requiring remote Redis', async () => {
+    const f = clockFixture();
+    process.env.LOCAL_API_MODE = 'tauri-sidecar';
+    const first = { generatedAt: f.start, cables: {} };
+    sidecarCacheSet(CACHE_KEY, first, 1800);
+    sidecarCacheSet(META_KEY, { fetchedAt: f.start - 90 * 60_000, recordCount: 0 }, 604800);
+    globalThis.fetch = (async () => { throw new Error('sidecar cache hit must not use the network'); }) as typeof fetch;
+    f.advance(29);
+    assert.deepEqual(await getCableHealth({} as never, {} as never), first);
+    assert.deepEqual(sidecarCacheGet(META_KEY), { fetchedAt: first.generatedAt, recordCount: 0 });
+    f.advance(31);
+    assert.deepEqual(sidecarCacheGet(CACHE_KEY), first);
+    f.advance(90);
+    assert.equal(sidecarCacheGet(CACHE_KEY), null);
   });
 
   it('serves the old canonical snapshot to health while refresh is in flight', async () => {
