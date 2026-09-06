@@ -44,6 +44,15 @@ function worldMonitorCompareCopy() {
   const chunks = worldMonitorRows().flat();
   for (const page of COMPARISON_PAGES) {
     chunks.push(page.whyWeWin, page.concessionIntro);
+    if (page.whyWeWinBody) chunks.push(...page.whyWeWinBody);
+    if (page.headingProse) chunks.push(...page.headingProse);
+    if (page.evaluationProse) chunks.push(...page.evaluationProse);
+    if (page.switchProse) chunks.push(...page.switchProse);
+    if (page.methodologyProse) chunks.push(...page.methodologyProse);
+    if (page.usageProse) chunks.push(...page.usageProse);
+    for (const profile of page.competitorProfiles ?? []) {
+      chunks.push(profile.name, ...(profile.paragraphs ?? []));
+    }
     for (const [name, cells] of page.concessions) chunks.push(name, cells);
     for (const [question, answer] of page.faqs) chunks.push(question, answer);
   }
@@ -117,27 +126,32 @@ describe('#7744 compare pages agree with reconciled product facts', () => {
   });
 
   it('does not hardcode a provider numeral in the compare generator', () => {
-    const source = read('scripts/build-comparison-pages.mjs');
-    assert.doesNotMatch(
-      source,
-      /\b\d{3,}\s+active providers\b/,
-      'matrix cells must format the live provider count, not a typed numeral',
-    );
-    assert.doesNotMatch(
-      source,
-      /\b\d{3,}\s+attributed(?: public)? providers\b/,
-      'FAQ copy must format the live provider count, not a typed numeral',
-    );
-    assert.match(
-      source,
-      /computeStats\(\)\.sourceAttribution\.providerCount/,
-      'the compare generator must call computeStats() for the provider count, not a sibling copy of the number',
-    );
-    assert.doesNotMatch(
-      source,
-      /loadStatsForInventoryFacts\s*\(/,
-      'a drifted attribution manifest must fail the compare generator, not republish the last known-good count',
-    );
+    const sources = [
+      read('scripts/build-comparison-pages.mjs'),
+      read('scripts/comparison-page-narratives.mjs'),
+    ];
+    for (const source of sources) {
+      assert.doesNotMatch(
+        source,
+        /\b\d{3,}\s+active providers\b/,
+        'matrix cells must format the live provider count, not a typed numeral',
+      );
+      assert.doesNotMatch(
+        source,
+        /\b\d{3,}\s+attributed(?: public)? providers\b/,
+        'FAQ copy must format the live provider count, not a typed numeral',
+      );
+      assert.match(
+        source,
+        /computeStats\(\)\.sourceAttribution\.providerCount/,
+        'the compare generator must call computeStats() for the provider count, not a sibling copy of the number',
+      );
+      assert.doesNotMatch(
+        source,
+        /loadStatsForInventoryFacts\s*\(/,
+        'a drifted attribution manifest must fail the compare generator, not republish the last known-good count',
+      );
+    }
   });
 
   it('renders the live provider count on every /compare/ page', () => {
