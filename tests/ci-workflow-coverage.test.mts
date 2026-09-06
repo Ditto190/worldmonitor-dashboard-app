@@ -34,7 +34,6 @@ const REQUIRED_PR_SCRIPTS = [
   'test:data',
   'test:sidecar',
   'test:convex',
-  'test:e2e:ci-smoke',
   'test:resilience-validation-smoke',
 ] as const;
 
@@ -43,12 +42,18 @@ const REQUIRED_PR_SCRIPTS = [
 // while CI stays green, so the required spec list is pinned here.
 const REQUIRED_CI_SMOKE_SPECS = [
   'e2e/variant-live-smoke.spec.ts',
+  'e2e/country-brief.spec.ts',
   'e2e/mcp-grant-consent.spec.ts',
   'e2e/dashboard-news-request-budget.spec.ts',
+  'e2e/bootstrap-request-budget.spec.ts',
+  'e2e/bootstrap-hydration-request-budget.spec.ts',
+  'e2e/settings-panel-live-apply.spec.ts',
+  'e2e/settings-source-live-apply.spec.ts',
   'e2e/dashboard-lcp-attribution.spec.ts',
   'e2e/keyword-spike-flow.spec.ts',
   'e2e/breaking-news-banner-provenance.spec.ts',
   'e2e/a11y-axe-scan.spec.ts',
+  'e2e/map-overlay-marker-budget.spec.ts',
 ] as const;
 
 const REQUIRED_TEST_JOBS = [
@@ -65,6 +70,8 @@ const TIMEOUT_CAPPED_TEST_JOBS = [
   'consumer-prices',
   'sidecar',
   'convex-tests',
+  'variant-smoke-shards',
+  'variant-smoke-pro-webmcp',
   'variant-smoke-full',
   'resilience-validation-smoke',
   'desktop-config',
@@ -89,21 +96,16 @@ const REQUIRED_NON_TEST_GATE_CHECKS = [
   'proto-freshness',
 ] as const;
 
-// Jobs the deploy gate cannot require under their own name, and the check that
-// blocks on their behalf instead. A matrix job publishes one check run per
-// matrix entry (`audit-lockfile (root)`, `audit-lockfile (scripts)`, …) and
-// never the bare job id, so listing the id in `required` would leave the gate
-// waiting on a check run that is never published — pending forever, which
-// deadlocks every PR. The `if: always()` aggregate job publishes the single
-// blocking check for the whole matrix instead.
-//
-// An entry here is honoured only when both halves still hold: the job's `name:`
-// is a template expression (so it structurally cannot be matched by id), and
-// the covering check is itself a required gate check. That keeps this table
-// from becoming a way to quietly drop a job out of the gate.
+// Jobs covered by an aggregate check rather than required under their own
+// names. Matrix jobs publish one check run per entry and have no single name
+// for the gate to match. A companion non-matrix job can share the same
+// aggregate so branch protection retains one stable public contract. Each
+// exemption is valid only while the required aggregate directly needs it.
 const GATE_CHECK_EXEMPTIONS: Record<string, { workflow: string; coveredBy: string }> = {
   'audit-lockfile': { workflow: 'Security Audit', coveredBy: 'security-audit' },
   'unit-shards': { workflow: 'Test', coveredBy: 'unit' },
+  'variant-smoke-shards': { workflow: 'Test', coveredBy: 'variant-smoke-full' },
+  'variant-smoke-pro-webmcp': { workflow: 'Test', coveredBy: 'variant-smoke-full' },
 };
 
 const REQUIRED_RESILIENCE_VALIDATION_INPUTS = [
@@ -219,6 +221,15 @@ function stepPaths(stepBlock: string): string[] {
     .split('\n')
     .map((line) => line.trim().replace(/\/$/, ''))
     .filter((line) => line.length > 0);
+}
+
+function shellArgvTokens(command: string): string[] {
+  const tokens: string[] = [];
+  for (const token of command.trim().split(/\s+/)) {
+    if (token.startsWith('#')) break;
+    tokens.push(token);
+  }
+  return tokens;
 }
 
 function workflowRunScript(stepBlock: string): string {
@@ -754,18 +765,14 @@ describe('CI workflow coverage', () => {
     }
   });
 
-  it('keeps every smoke spec on the combined ci-smoke command line', () => {
+  it('keeps every smoke spec on the combined command and exactly one shard', () => {
     const ciSmoke = packageScripts['test:e2e:ci-smoke'] ?? '';
     // Tokenize as the shell would, and stop at the first comment token: npm
     // scripts run under `sh -c`, where a word-initial `#` comments out the
     // rest of the line. A substring check would stay green with the spec
     // paths sitting in the commented-out tail while playwright never runs
     // them — the argv-token check is what gives this guard teeth.
-    const argvTokens: string[] = [];
-    for (const token of ciSmoke.trim().split(/\s+/)) {
-      if (token.startsWith('#')) break;
-      argvTokens.push(token);
-    }
+    const argvTokens = shellArgvTokens(ciSmoke);
     for (const spec of REQUIRED_CI_SMOKE_SPECS) {
       assert.ok(
         argvTokens.includes(spec),
@@ -781,6 +788,34 @@ describe('CI workflow coverage', () => {
       argvTokens.includes('VITE_VARIANT=full'),
       'test:e2e:ci-smoke must pin VITE_VARIANT=full — variant-live-smoke asserts the full-variant panel set',
     );
+
+    const smokeSpecs = argvTokens.filter((token) => token.startsWith('e2e/') && token.endsWith('.spec.ts'));
+    assert.equal(new Set(smokeSpecs).size, smokeSpecs.length, 'test:e2e:ci-smoke must not repeat a spec');
+    assert.deepEqual(
+      [...smokeSpecs].sort(),
+      [...REQUIRED_CI_SMOKE_SPECS].sort(),
+      'test:e2e:ci-smoke must contain exactly the pinned smoke-spec inventory',
+    );
+    const shardSpecs = ['test:e2e:ci-smoke:1', 'test:e2e:ci-smoke:2'].map((script) => {
+      const command = packageScripts[script] ?? '';
+      const tokens = shellArgvTokens(command);
+      assert.deepEqual(
+        tokens.slice(0, 4),
+        ['cross-env', 'VITE_VARIANT=full', 'playwright', 'test'],
+        `${script} must invoke the full-variant Playwright command before its smoke specs`,
+      );
+      const specs = tokens.filter((token) => token.startsWith('e2e/') && token.endsWith('.spec.ts'));
+      assert.ok(specs.length > 0, `${script} must pass smoke specs as live argv tokens`);
+      assert.equal(new Set(specs).size, specs.length, `${script} must not repeat a spec`);
+      return specs;
+    });
+    const intersection = shardSpecs[0].filter((spec) => shardSpecs[1].includes(spec));
+    assert.deepEqual(intersection, [], 'ci-smoke shards must be disjoint');
+    assert.deepEqual(
+      [...shardSpecs[0], ...shardSpecs[1]].sort(),
+      [...REQUIRED_CI_SMOKE_SPECS].sort(),
+      'the ci-smoke shard union must equal the pinned smoke-spec inventory',
+    );
   });
 
   it('keeps the main Test workflow jobs for defensibility smoke gates', () => {
@@ -795,25 +830,34 @@ describe('CI workflow coverage', () => {
     }
   });
 
-  it('does not let a hung playwright install-deps eat the variant-smoke-full budget', () => {
-    const job = testJobBlock('variant-smoke-full');
-    assert.match(job, /\n {4}timeout-minutes: 30\n/);
-    assert.match(
-      job,
-      /id: playwright-install-deps[\s\S]*timeout-minutes: 8[\s\S]*continue-on-error: true[\s\S]*npx playwright install-deps chromium/,
-    );
-    assert.match(
-      job,
-      /steps\.playwright-install-deps\.outcome == 'failure'[\s\S]*pkill -9 apt-get[\s\S]*npx playwright install --with-deps chromium/,
-    );
+  it('does not let a hung playwright install-deps eat a browser job budget', () => {
+    const browserJobs = workflowJobNames(testWorkflow, 'test.yml')
+      .filter((jobName) => /npm run test:e2e:/.test(testJobBlock(jobName)));
+    assert.deepEqual(browserJobs, ['variant-smoke-shards', 'variant-smoke-pro-webmcp']);
+    for (const jobName of browserJobs) {
+      const job = testJobBlock(jobName);
+      assert.match(job, /\n {4}timeout-minutes: 20\n/);
+      assert.match(
+        job,
+        /id: playwright-install-deps[\s\S]*timeout-minutes: 8[\s\S]*continue-on-error: true[\s\S]*npx playwright install-deps chromium/,
+      );
+      assert.match(
+        job,
+        /steps\.playwright-install-deps\.outcome == 'failure'[\s\S]*pkill -9 apt-get[\s\S]*npx playwright install --with-deps chromium/,
+      );
+    }
   });
 
   // #6496: playwright.config.ts retained a trace, a video and a screenshot for
   // every failed test and CI collected none of them, so run 31584738075 died
   // with the only evidence that could have named its browser close. The job is
   // required, so it reddens on flakes nobody can then diagnose.
-  it('collects what every playwright run in variant-smoke-full leaves behind (#6496)', () => {
-    const job = testJobBlock('variant-smoke-full');
+  it('collects what every playwright run in each browser job leaves behind (#6496)', () => {
+    const browserJobs = workflowJobNames(testWorkflow, 'test.yml')
+      .filter((jobName) => /npm run test:e2e:/.test(testJobBlock(jobName)));
+    assert.deepEqual(browserJobs, ['variant-smoke-shards', 'variant-smoke-pro-webmcp']);
+    for (const jobName of browserJobs) {
+      const job = testJobBlock(jobName);
 
     // The uploaded path has to be the directory Playwright actually writes.
     // The config leaves outputDir at its default, so that is `test-results`;
@@ -829,7 +873,7 @@ describe('CI workflow coverage', () => {
     const runs = steps
       .map((step, index) => ({ ...step, index }))
       .filter((step) => /\n\s*(?:- )?run: npm run test:e2e:/.test(step.block));
-    assert.ok(runs.length > 0, 'variant-smoke-full must still invoke playwright');
+    assert.ok(runs.length > 0, `${jobName} must invoke playwright`);
     assert.equal(
       runs.length,
       (job.match(/\n\s*(?:- )?run: npm run test:e2e:/g) ?? []).length,
@@ -886,6 +930,14 @@ describe('CI workflow coverage', () => {
       artifactNames.length,
       `each playwright run's artifact needs its own name — upload-artifact rejects a duplicate name ` +
         `within one run, so a collision drops one run's traces entirely. Got: ${artifactNames.join(', ')}`,
+    );
+    }
+
+    const shardJob = testJobBlock('variant-smoke-shards');
+    assert.match(
+      shardJob,
+      /name: playwright-ci-smoke-\$\{\{ matrix\.shard \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/,
+      'matrix shards must publish distinct ci-smoke artifact names',
     );
   });
 
@@ -944,12 +996,15 @@ describe('CI workflow coverage', () => {
 
         if (exemption && exemption.workflow === workflowName) {
           assert.ok(
-            templated,
-            `${workflowName}/${job} is exempt from the gate only because its check-run name is templated, but it publishes the literal name ${name} — require it directly instead`,
-          );
-          assert.ok(
             requiredChecks.includes(exemption.coveredBy),
             `${workflowName}/${job} is exempt because ${exemption.coveredBy} blocks on its behalf, so ${exemption.coveredBy} must itself be a required gate check`,
+          );
+          const parsed = YAML.parse(source) as { jobs?: Record<string, { needs?: string | string[] }> };
+          const aggregateNeedsValue = parsed.jobs?.[exemption.coveredBy]?.needs ?? [];
+          const aggregateNeeds = Array.isArray(aggregateNeedsValue) ? aggregateNeedsValue : [aggregateNeedsValue];
+          assert.ok(
+            aggregateNeeds.includes(job),
+            `${workflowName}/${job} is exempt because ${exemption.coveredBy} blocks on its behalf, so that aggregate must directly need ${job}`,
           );
           continue;
         }
