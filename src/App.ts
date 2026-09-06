@@ -323,6 +323,13 @@ export class App {
   private unsubAiFlow: (() => void) | null = null;
   private unsubFreeTier: (() => void) | null = null;
   private unsubEntitlementPremiumLoaders: (() => void) | null = null;
+  /**
+   * Boot epoch for optional local-AI continuations (#7779). destroy() bumps
+   * it first so a stale detached continuation from a torn-down App can never
+   * download a model or restart the shared worker a fresh same-document App
+   * reuses. Continuations also check state.isDestroyed directly.
+   */
+  private localAiInitEpoch = 0;
   // Resolves once Phase-4 UI modules have initialised so WebMCP bindings can
   // await readiness before dispatching into UI managers. Avoids the startup
   // race where an agent discovers a tool via early registerTool and invokes it
@@ -2360,28 +2367,69 @@ export class App {
     const srH1 = document.querySelector('body > h1');
     if (srH1) srH1.textContent = t('shell.documentTitle');
     const aiFlow = getAiFlowSettings();
+    // Optional local AI initializes independently of the dashboard critical
+    // path (#7779): boot proceeds to layout, event handlers and basic panels
+    // immediately; the worker settles in the background. The epoch guards
+    // detached continuations: disable/destroy during capability detection,
+    // worker startup or model restoration resolves late continuations as false
+    // instead of downloading models or restarting for a dead app generation.
+    // destroy() bumps the epoch first, so a stale continuation from a
+    // torn-down App can never load a model into the shared worker a fresh
+    // same-document App reuses. The failed/unavailable path leaves the
+    // dashboard usable; explicit AI operations fail visibly through the
+    // manager's readiness promises instead.
+    const localAiEpoch = this.localAiInitEpoch;
+    // Same authority as before: browserModel on web, unconditional on desktop.
+    // Headline Memory needs no extra disjunct — on web its effective gate
+    // already requires browserModel, on desktop the runtime check covers it.
     if (aiFlow.browserModel || isDesktopRuntime()) {
-      await mlWorker.init();
-      if (BETA_MODE) mlWorker.loadModel('summarization-beta').catch(() => { });
+      void (async () => {
+        try {
+          const ready = await mlWorker.init();
+          if (this.localAiInitEpoch !== localAiEpoch || this.state.isDestroyed) return;
+          if (!ready) return;
+          if (!getAiFlowSettings().browserModel && !isDesktopRuntime()) return;
+          if (BETA_MODE) mlWorker.loadModel('summarization-beta').catch(() => { });
+        } catch {
+          // Worker failure must not break boot; explicit AI operations fail
+          // visibly through the manager's readiness promises instead.
+        }
+      })();
     }
 
     // Headline Memory requires Browser Local Model to be ON — `isHeadlineMemoryEnabled()`
     // ANDs both flags. Without this gate, leaving Headline Memory on while turning
     // Browser Local Model off would silently download/run an embeddings model the user
-    // opted out of via the parent toggle.
+    // opted out of via the parent toggle. Joins the detached boot continuation
+    // above (shared in-flight init, no duplicate worker): on slow workers this
+    // waits without blocking layout or panels.
     if (isHeadlineMemoryEnabled()) {
-      mlWorker.init().then(ok => {
-        if (ok) mlWorker.loadModel('embeddings').catch(() => { });
+      void mlWorker.whenReady('app-boot:headline-memory').then((ready) => {
+        if (!ready) return;
+        if (this.localAiInitEpoch !== localAiEpoch || this.state.isDestroyed) return;
+        if (!isHeadlineMemoryEnabled()) return;
+        mlWorker.loadModel('embeddings').catch(() => { });
       }).catch(() => { });
     }
 
     this.unsubAiFlow = subscribeAiFlowChange((key) => {
+      // Detached continuations re-read current settings and the app lifetime
+      // before requesting a model: a toggle that went away while the worker
+      // was starting must not leave a model downloading (#7779).
       if (key === 'browserModel') {
         const s = getAiFlowSettings();
         if (s.browserModel) {
-          mlWorker.init().then(ok => {
+          // init(), not whenReady(): cold-boot with the toggle off leaves the
+          // manager disabled, and whenReady() on a disabled manager resolves
+          // false without starting anything — the enable path must START the
+          // worker (#7796 review P1). init() is idempotent over an already
+          // running worker, so a racing boot continuation cannot duplicate it.
+          const epoch = this.localAiInitEpoch;
+          void mlWorker.init().then((ready) => {
+            if (!ready) return;
+            if (this.localAiInitEpoch !== epoch || this.state.isDestroyed) return;
             // Re-honor Headline Memory's persisted value on parent re-enable.
-            if (ok && isHeadlineMemoryEnabled()) {
+            if (isHeadlineMemoryEnabled()) {
               mlWorker.loadModel('embeddings').catch(() => { });
             }
           }).catch(() => { });
@@ -2394,8 +2442,16 @@ export class App {
       }
       if (key === 'headlineMemory') {
         if (isHeadlineMemoryEnabled()) {
-          mlWorker.init().then(ok => {
-            if (ok) mlWorker.loadModel('embeddings').catch(() => { });
+          // init(), not whenReady(): Headline Memory can be toggled on while
+          // the manager was never started (web boot with browserModel off) —
+          // waiting would resolve false without starting anything, and its
+          // effective gate already implies the parent toggle (#7796 review P1).
+          const epoch = this.localAiInitEpoch;
+          void mlWorker.init().then((ready) => {
+            if (!ready) return;
+            if (this.localAiInitEpoch !== epoch || this.state.isDestroyed) return;
+            if (!isHeadlineMemoryEnabled()) return;
+            mlWorker.loadModel('embeddings').catch(() => { });
           }).catch(() => { });
         } else {
           mlWorker.unloadModel('embeddings').catch(() => { });
@@ -3368,6 +3424,10 @@ export class App {
   }
 
   public destroy(): void {
+    // Invalidate optional local-AI continuations FIRST: any detached
+    // mlWorker.whenReady() callback captured below terminates instead of
+    // downloading models or restarting for a destroyed app (#7779).
+    this.localAiInitEpoch += 1;
     this.state.isDestroyed = true;
     this.latestSearchAdsb = [];
     this.latestSearchMilitary = [];
