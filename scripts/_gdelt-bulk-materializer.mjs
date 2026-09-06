@@ -3,7 +3,9 @@ import { decodeHtmlEntities } from './_html-entities.mjs';
 // and the ISO form legacy snapshots carry, so the article window/sort survives
 // the format change (#5863 review).
 import { gdeltSeenDateToMs } from './_conflict-gdelt.mjs';
-import { GDELT_FIPS_TO_ISO2 } from './_conflict-gdelt-bulk.mjs';
+// Pure data, no imports: this file's source is a `make generate` input, so
+// its import closure is a proto-freshness input too (#7748 review).
+import { GDELT_FIPS_TO_ISO2 } from './_gdelt-country-codes.mjs';
 import { inflateRawSync } from 'node:zlib';
 
 const GDELT_STORAGE_ORIGIN = 'https://storage.googleapis.com/data.gdeltproject.org';

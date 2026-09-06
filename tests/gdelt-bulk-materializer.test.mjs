@@ -14,7 +14,8 @@ import {
   recordCountryMentions,
   toArticle as gdeltArticleForTests,
 } from '../scripts/_gdelt-bulk-materializer.mjs';
-import { GDELT_FIPS_TO_ISO2 } from '../scripts/_conflict-gdelt-bulk.mjs';
+import { GDELT_FIPS_TO_ISO2 } from '../scripts/_gdelt-country-codes.mjs';
+import { GDELT_FIPS_TO_ISO2 as REEXPORTED_FIPS_TO_ISO2 } from '../scripts/_conflict-gdelt-bulk.mjs';
 import { extraKeyPayloadBytes, MAX_PAYLOAD_BYTES } from '../scripts/_seed-utils.mjs';
 
 function gkgRow({
@@ -591,7 +592,9 @@ describe('GDELT per-country article index (#7748)', () => {
     assert.equal(GDELT_FIPS_TO_ISO2.GZ, 'PS');
     assert.equal(GDELT_FIPS_TO_ISO2.WE, 'PS');
     assert.equal(GDELT_FIPS_TO_ISO2.KV, 'XK');
-    // The conflict mapper's original entries are unchanged.
+    // The conflict mapper's original entries are unchanged, and its module
+    // still exports the one table.
+    assert.equal(REEXPORTED_FIPS_TO_ISO2, GDELT_FIPS_TO_ISO2);
     assert.equal(GDELT_FIPS_TO_ISO2.UP, 'UA');
     assert.equal(GDELT_FIPS_TO_ISO2.SU, 'SD');
     assert.equal(GDELT_FIPS_TO_ISO2.OD, 'SS');
