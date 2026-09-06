@@ -34,6 +34,34 @@ interface ResilienceEnvRead {
   timing: EnvReadTiming;
 }
 
+function repositoryPath(filePath: string): string {
+  return filePath.replaceAll(path.win32.sep, path.posix.sep);
+}
+
+function immediateInvocation(node: ts.Node): ts.CallExpression | null {
+  if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return null;
+  let expression: ts.Expression = node;
+  while (ts.isParenthesizedExpression(expression.parent) && expression.parent.expression === expression) {
+    expression = expression.parent;
+  }
+  const parent = expression.parent;
+  return ts.isCallExpression(parent) && parent.expression === expression ? parent : null;
+}
+
+function envReadTiming(node: ts.Node): EnvReadTiming {
+  let ancestor = node.parent;
+  while (ancestor && !ts.isSourceFile(ancestor)) {
+    if (ts.isFunctionLike(ancestor)) {
+      const invocation = immediateInvocation(ancestor);
+      if (!invocation) return 'call-time';
+      ancestor = invocation.parent;
+      continue;
+    }
+    ancestor = ancestor.parent;
+  }
+  return 'module-load';
+}
+
 function collectResilienceEnvReads(filePath: string, source: string): ResilienceEnvRead[] {
   const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const reads: ResilienceEnvRead[] = [];
@@ -59,14 +87,11 @@ function collectResilienceEnvReads(filePath: string, source: string): Resilience
   const visit = (node: ts.Node): void => {
     const name = resilienceFlagName(node);
     if (name) {
-      let timing: EnvReadTiming = 'module-load';
-      for (let ancestor = node.parent; ancestor && !ts.isSourceFile(ancestor); ancestor = ancestor.parent) {
-        if (ts.isFunctionLike(ancestor)) {
-          timing = 'call-time';
-          break;
-        }
-      }
-      reads.push({ file: path.relative(REPO_ROOT, filePath), name, timing });
+      reads.push({
+        file: repositoryPath(path.relative(REPO_ROOT, filePath)),
+        name,
+        timing: envReadTiming(node),
+      });
     }
     ts.forEachChild(node, visit);
   };
@@ -237,6 +262,8 @@ describe('CRI golden baseline generator guards', () => {
           'const captured = process.env.RESILIENCE_EDUCATION_ENABLED;',
           'function enabled() { return process.env.RESILIENCE_EDUCATION_ENABLED; }',
           "const bracketed = process.env['RESILIENCE_ENERGY_V2_ENABLED'];",
+          'const capturedByIife = (() => process.env.RESILIENCE_PILLAR_COMBINE_ENABLED)();',
+          'function deferredIife() { return (() => process.env.RESILIENCE_SCHEMA_V2_ENABLED)(); }',
           '// process.env.RESILIENCE_COMMENT_ONLY',
         ].join('\n'),
       );
@@ -245,7 +272,14 @@ describe('CRI golden baseline generator guards', () => {
         { file: 'synthetic-scorer.ts', name: 'RESILIENCE_EDUCATION_ENABLED', timing: 'module-load' },
         { file: 'synthetic-scorer.ts', name: 'RESILIENCE_EDUCATION_ENABLED', timing: 'call-time' },
         { file: 'synthetic-scorer.ts', name: 'RESILIENCE_ENERGY_V2_ENABLED', timing: 'module-load' },
+        { file: 'synthetic-scorer.ts', name: 'RESILIENCE_PILLAR_COMBINE_ENABLED', timing: 'module-load' },
+        { file: 'synthetic-scorer.ts', name: 'RESILIENCE_SCHEMA_V2_ENABLED', timing: 'call-time' },
       ]);
+    });
+
+    it('normalizes Windows paths to repository separators', () => {
+      assert.equal(repositoryPath('server\\worldmonitor\\resilience\\v1\\_shared.ts'),
+        'server/worldmonitor/resilience/v1/_shared.ts');
     });
 
     it('pins every RESILIENCE_* env-read occurrence to its file and capture timing', () => {
