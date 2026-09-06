@@ -79,26 +79,27 @@ crosses 16.7 ms or 50 ms.
 
 ## Chromium results (9 samples after one warmup)
 
-Representative production fixture (289 items → 255 clusters):
+Representative production fixture (289 items → 255 clusters), including
+threat and credibility fields used by `clusterNewsCore`:
 
 | CPU | Sync median (max) | Serialize median | Worker cold ready | Worker warm RT | Clustering long tasks | Frame miss | Long task |
 |---|---|---|---|---|---|---|---|
-| 1× | 2.3 ms (3.7) | 0.3 ms | 7.6 ms | 2.4 ms | 0 | no | no |
-| 4× | 9.3 ms (10.7) | 1.1 ms | 4.1 ms | 2.5 ms | 0 | no | no |
-| 6× | 14.5 ms (16.0) | 1.7 ms | 5.5 ms | 2.8 ms | 0 | no | no |
+| 1× | 2.2 ms (3.2) | 0.4 ms | 7.8 ms | 3.1 ms | 0 | no | no |
+| 4× | 8.6 ms (10.6) | 1.1 ms | 4.1 ms | 3.8 ms | 0 | no | no |
+| 6× | 12.0 ms (17.1) | 1.9 ms | 5.7 ms | 4.7 ms | 0 | no | no |
 
 High-diversity 1,500 inputs (capped to 1,000 clusters, all singletons):
 
 | CPU | Sync median (max) | Serialize median | Worker cold ready | Worker warm RT | Clustering long tasks | Frame miss | Long task |
 |---|---|---|---|---|---|---|---|
-| 1× | 2.6 ms (3.2) | 1.1 ms | 3.2 ms | 3.2 ms | 0 | no | no |
-| 4× | 10.5 ms (11.6) | 4.0 ms | 3.3 ms | 3.7 ms | 0 | no | no |
-| 6× | 16.1 ms (17.8) | 6.2 ms | 5.6 ms | 4.0 ms | 0 | no | no |
+| 1× | 2.3 ms (2.8) | 1.0 ms | 2.8 ms | 4.9 ms | 0 | no | no |
+| 4× | 9.8 ms (11.5) | 3.3 ms | 3.6 ms | 7.2 ms | 0 | no | no |
+| 6× | 14.5 ms (15.9) | 5.2 ms | 6.6 ms | 9.4 ms | 0 | no | no |
 
-The 6× high-diversity p90 is 17.8 ms, which is above one frame, but the
-median is 16.1 ms and no `PerformanceObserver('longtask')` entry fired
-during the isolated clustering window. Production input is 289 items, not
-the 1,000-item cap.
+Worker round trips post and hydrate the full cluster payload, matching
+`analysisWorker.clusterNews()`. The 6× representative max is 17.1 ms, but
+the median is 12.0 ms and no clustering long task fired. Production input
+is 289 items, not the 1,000-item cap.
 
 An earlier unyielded harness mixed serialization loops and blob-worker
 construction into the same task and reported 67 ms / 109 ms long tasks at
@@ -122,20 +123,20 @@ for worker lifecycle.
 `clusterNewsHybrid` calls `clusterNewsCore` before its first `await`. That
 call is the only main-thread occupancy this issue may move.
 
-- Production occupancy is 2.3 ms unthrottled and 14.5 ms median at 6×, with
-  a 16.0 ms max. That is under a 16.7 ms frame and far under a 50 ms long
-  task.
+- Production occupancy is 2.2 ms unthrottled and 12.0 ms median at 6×, with
+  a 17.1 ms max. The median stays under a 16.7 ms frame and far under a
+  50 ms long task.
 - The existing analysis worker is lazy, waits up to 10 s to become ready
   and 30 s for a clustering request, and returns `[]` when construction is
   unsupported. Treating that empty result as an authoritative cluster set
   would wipe news hubs. A direct `await analysisWorker.clusterNews(...)`
   replacement would also drop the hybrid path's synchronous Jaccard
   fallback.
-- Warm blob-worker round trips look faster under CDP 6× (2.8 ms vs 14.5 ms
+- Warm blob-worker round trips look faster under CDP 6× (4.7 ms vs 12.0 ms
   sync) because throttling hits the renderer main thread harder than the
   worker. On a uniformly slow device both sides share the same CPU, so that
   gap is not a measured mid-tier win. Serialization of the representative
-  payload is 1.7 ms at 6× — similar order to the clustering itself at 1×,
+  payload is 1.9 ms at 6× — similar order to the clustering itself at 1×,
   not a reason to add a lifecycle.
 
 No clustering thresholds, article caps, or worker infrastructure were

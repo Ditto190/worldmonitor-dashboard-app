@@ -81,6 +81,9 @@ async function measurePage(page, items, samples) {
       link: item.link,
       pubDate: new Date(item.publishedAt),
       isAlert: Boolean(item.isAlert),
+      ...(item.threat ? { threat: item.threat } : {}),
+      ...(Number.isFinite(item.credibilityScore) ? { credibilityScore: item.credibilityScore } : {}),
+      ...(item.lat != null && item.lon != null ? { lat: item.lat, lon: item.lon } : {}),
     }));
 
     const longtasks = [];
@@ -142,7 +145,7 @@ self.onmessage = (event) => {
     pubDate: new Date(item.pubDate),
   }));
   const clusters = NewsClustering.clusterNewsCore(items, () => 4);
-  self.postMessage({ clusterCount: clusters.length });
+  self.postMessage({ clusters });
 };
 self.postMessage({ type: 'ready' });`;
 
@@ -156,12 +159,25 @@ self.postMessage({ type: 'ready' });`;
         const onMessage = (event) => {
           if (event.data?.type === 'ready') return;
           worker.removeEventListener('message', onMessage);
-          resolve(event.data);
+          resolve(hydrateWorkerClusters(event.data));
         };
         worker.addEventListener('message', onMessage);
         worker.addEventListener('error', reject, { once: true });
         worker.postMessage({ items: payload });
       });
+    }
+
+    function hydrateWorkerClusters(message) {
+      const clusters = Array.isArray(message?.clusters) ? message.clusters : [];
+      return clusters.map((cluster) => ({
+        ...cluster,
+        firstSeen: new Date(cluster.firstSeen),
+        lastUpdated: new Date(cluster.lastUpdated),
+        allItems: (cluster.allItems ?? []).map((item) => ({
+          ...item,
+          pubDate: new Date(item.pubDate),
+        })),
+      }));
     }
 
     const payload = news.map((item) => ({
