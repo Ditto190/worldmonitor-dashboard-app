@@ -4616,6 +4616,7 @@ export class DataLoaderManager implements AppModule {
       // worker-ready event that would regroup already-committed clusters.
       if (this.ctx.latestClusters.length === 0 && this.ctx.allNews.length > 0) {
         const { clusters } = await this.clusterNewsForGeneration(this.ctx.allNews, newsGeneration);
+        if (!this.isCurrentNewsLoad(newsGeneration)) return;
         this.ctx.latestClusters = clusters;
         this.ctx.clustersSettled = true;
       }

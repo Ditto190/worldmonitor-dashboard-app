@@ -92,9 +92,12 @@ describe('hybrid clustering initial worker stage (#7782)', () => {
     mlMocks.available = true;
     let current = true;
 
-    const result = clusterNewsHybrid([item(1)], { shouldContinue: () => current });
+    const result = clusterNewsHybrid(
+      Array.from({ length: 5 }, (_, index) => item(index)),
+      { shouldContinue: () => current },
+    );
     current = false;
-    resolveWorker([cluster(1)]);
+    resolveWorker(Array.from({ length: 5 }, (_, index) => cluster(index)));
 
     await expect(result).resolves.toEqual([]);
     expect(mlMocks.clusterBySemanticSimilarity).not.toHaveBeenCalled();
@@ -107,7 +110,10 @@ describe('hybrid clustering initial worker stage (#7782)', () => {
     mlMocks.available = true;
     let current = true;
 
-    const result = clusterNewsHybrid([item(1)], { shouldContinue: () => current });
+    const result = clusterNewsHybrid(
+      Array.from({ length: 5 }, (_, index) => item(index)),
+      { shouldContinue: () => current },
+    );
     current = false;
     rejectWorker(new Error('Worker terminated'));
 
