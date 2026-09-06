@@ -3,7 +3,7 @@ import type { AisPositionData } from '@/services/maritime';
 import type { MilitaryVessel, USNIFleetReport } from '@/types';
 
 const stream = vi.hoisted(() => ({
-  registerAisCallback: vi.fn(),
+  registerAisCallback: vi.fn<(callback: (data: AisPositionData) => void) => void>(),
   unregisterAisCallback: vi.fn(),
   isAisConfigured: vi.fn(() => false),
   initAisStream: vi.fn(),
@@ -43,7 +43,9 @@ beforeEach(async () => {
   vi.spyOn(Date, 'now').mockImplementation(() => now);
   service = await import('@/services/military-vessels');
   service.initMilitaryVesselStream();
-  receive = stream.registerAisCallback.mock.calls[0][0];
+  const callback = stream.registerAisCallback.mock.calls[0]?.[0];
+  if (!callback) throw new Error('Military vessel stream did not register its AIS callback');
+  receive = callback;
 });
 
 afterEach(() => {
@@ -182,17 +184,17 @@ describe('military vessel feed retention', () => {
       key, updatedAt: now, data: { vessels, clusters: [
         cluster('retained', vessels),
         cluster('removed', vessels.slice(0, 2)),
-        cluster('singleton', [vessels[0], vessels[1472]]),
+        cluster('singleton', [...vessels.slice(0, 1), ...vessels.slice(-1)]),
       ] },
     }));
 
     const data = await service.fetchMilitaryVessels();
     expect(fetchReport).not.toHaveBeenCalled();
     expect(data.vessels).toHaveLength(LIMIT);
-    expect(data.vessels[0].mmsi).toBe(position(1472).mmsi);
+    expect(data.vessels[0]?.mmsi).toBe(position(1472).mmsi);
     expect(data.vessels.every(v => v.lastAisUpdate instanceof Date)).toBe(true);
     expect(data.clusters.map(c => c.id)).toEqual(['retained']);
-    expect(data.clusters[0].vesselCount).toBe(LIMIT);
-    expect(data.clusters[0].vessels.every(v => data.vessels.includes(v))).toBe(true);
+    expect(data.clusters[0]?.vesselCount).toBe(LIMIT);
+    expect(data.clusters[0]?.vessels.every(v => data.vessels.includes(v))).toBe(true);
   });
 });
