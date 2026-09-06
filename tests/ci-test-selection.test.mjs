@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
 
 const root = resolve(import.meta.dirname, '..');
@@ -98,6 +99,40 @@ test('unusable, incomplete and moved diff metadata runs every Test job', () => {
     const result = classify(files, options);
     assert.ok(Object.values(result).every((value) => value === 'true'), JSON.stringify({ files: files.slice(0, 2), options, result }));
     assert.equal(Object.keys(result).length, Object.keys(workflow.jobs.changes.outputs).length);
+  }
+});
+
+test('src-tauri node suites are code, so unit and sidecar run on their own PRs', () => {
+  // tests/package-test-command-paths.test.mjs polices src-tauri/ suites from
+  // inside unit, and sidecar runs them; both are gated on `code`, which the
+  // src-tauri exclusion below would otherwise leave false (#7772).
+  // Every extension the guard discovers must classify as code, or a suite in
+  // that extension is exactly the unowned file the guard cannot see.
+  for (const extension of ['mjs', 'mts', 'cjs', 'js', 'ts', 'tsx']) {
+    assert.equal(classify([`src-tauri/open-url-safety.test.${extension}`]).code, 'true', extension);
+  }
+  for (const event of ['pull_request', 'push']) {
+    assert.equal(classify(['src-tauri/open-url-safety.test.mjs'], { event }).code, 'true', event);
+    assert.equal(classify([
+      { filename: 'src-tauri/open-url-policy.test.mjs', previous_filename: 'src-tauri/open-url-safety.test.mjs', status: 'renamed' },
+    ], { event }).code, 'true', `${event}: rename`);
+    assert.equal(classify(['src-tauri/src/main.rs'], { event }).code, 'false', `${event}: desktop-rust owns Rust sources`);
+  }
+});
+
+test('resilience-validation-smoke runs only for validation changes that skip unit', () => {
+  const job = workflow.jobs['resilience-validation-smoke'];
+  const runs = (outputs) => runInNewContext(job.if, { needs: { changes: { outputs } } }, { timeout: 1000 });
+  const validationDoc = 'docs/methodology/country-resilience-index/validation/benchmark.md';
+  for (const event of ['pull_request', 'push']) {
+    const docsOnly = classify([validationDoc], { event });
+    assert.equal(docsOnly.validation, 'true');
+    assert.equal(docsOnly.code, 'false');
+    assert.equal(runs(docsOnly), true, `${event}: unit is skipped, so this job is the only run of the validation suite`);
+    const withCode = classify([validationDoc, 'scripts/_bundle-runner.mjs'], { event });
+    assert.equal(withCode.validation, 'true');
+    assert.equal(withCode.code, 'true');
+    assert.equal(runs(withCode), false, `${event}: unit already runs the same files inside test:data`);
   }
 });
 

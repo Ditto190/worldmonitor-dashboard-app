@@ -464,6 +464,20 @@ A dependency advisory the security gate knowingly tolerates, recorded per-lockfi
 
 The baseline is an exemption list, not a suppression: an advisory outside it fails the gate for every branch at once, which is why a newly published advisory blocks the whole repository until someone either patches or baselines it. Each entry carries its justification inline so a later reader can re-evaluate rather than inherit a bare allowlist, and an entry that no longer matches any live advisory is surfaced as stale so the list does not accrete dead exemptions. See also: Third-Party Rot, Acceptance Baseline.
 
+### Deploy Gate
+
+The single merge-blocking status that CI computes for a commit once the gated workflows finish, from a fixed list of check-run names. Each listed name resolves to the conclusion of its latest check run: a name no run has published holds the gate pending, a skipped conclusion counts as passing, and any other non-success fails it. A periodic sweep re-evaluates pending or stale statuses, so a status that arrived before its checks heals on its own. It is the CI counterpart of the Tiered Gate, which is a local pre-flight rather than the merge authority.
+
+Because a listed name must publish a run on every change, only a job inside a workflow that always triggers can be listed; a workflow behind a path filter publishes nothing when its paths do not match and would hold the gate forever. Conditional coverage is therefore expressed as an if-gated job, whose skip the gate accepts, and that job's change filter must name every input of the command it runs, including the manifest that defines the command. See also: Tiered Gate, Gate Contract, Advisory-Only Check.
+
+### Gate Contract
+
+The fingerprint of the Deploy Gate's required list, stamped onto every gate status it posts. Changing the list changes the stamp, so a status minted under the old list is treated as stale and re-evaluated rather than trusted: a branch approved under a narrower set cannot stay mergeable, and open branches read a newly required name as pending until they publish it. See also: Deploy Gate.
+
+### Advisory-Only Check
+
+A CI job that runs and reports on a change but is neither a branch-protection context nor a name on the Deploy Gate's required list, so a red result blocks nothing. It is the state a check falls into silently when it is moved out of a required job without being listed itself, and the reason a Wiring Guard fails the build whenever a gated workflow gains a job the required list does not name. See also: Deploy Gate, Wiring Guard, Vacuous Guard.
+
 ## Localization & First Paint
 
 ### English Shell
@@ -841,3 +855,4 @@ The comparison needs enough accumulated history to be meaningful and is suppress
 - *"Variant"* resolves differently per surface — a served host on the web, a locally stored selection on desktop. Only the web sense is addressable by URL; a desktop artifact is never variant-specific, so a variant accompanying a desktop artifact request is an identity label rather than a selector.
 - *"wingbits"* as a publication source means different things across the two Theater Posture producers — the military-flights seeder's keyed regional supplement after adsb.lol, but the relay loop's last-resort fallback. The recorded producer disambiguates which reading applies; never compare the token across producers.
 - *"Crashed"* had been used for both a build that failed and a run that exited non-zero — these are distinct. A failed build never started a container and leaves the previous Active Deployment serving; a crash is a started run that exited non-zero. Only the second is a seeder outcome; the first is a platform outcome that decides whether the seeder will ever run again.
+- *"Gate"* had been used for both the local pre-push Tiered Gate and the CI Deploy Gate — these are distinct. The Tiered Gate is a cacheable pre-flight that can be scoped or escalated on one machine; only the Deploy Gate decides mergeability, and only names on its required list count toward it.
