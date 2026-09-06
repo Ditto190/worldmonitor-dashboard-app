@@ -51,7 +51,21 @@ const FORWARDED_REQUEST_HEADERS = [
 
 // Hop-by-hop / recomputed response headers that must not be forwarded after
 // fetch has already decoded the body.
-const STRIPPED_RESPONSE_HEADERS = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection']);
+// Hop-by-hop framing, plus every cache directive: the docs MCP surface is
+// no-store end to end (the #4497 class is a shared-cache HIT of an MCP answer),
+// and the upstream does not promise that. Mintlify answers a bare GET with a 405
+// carrying its default `public, max-age=0, must-revalidate`, which the live
+// sweep (tests/live-api-cache-auth-regression.test.mjs, docs MCP probe) rejects.
+// The policy is owned here, not forwarded.
+const STRIPPED_RESPONSE_HEADERS = new Set([
+  'content-encoding',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'cache-control',
+  'cdn-cache-control',
+  'vercel-cdn-cache-control',
+]);
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -201,6 +215,7 @@ function upstreamResponseHeaders(upstream: Response): Headers {
   upstream.headers.forEach((value, key) => {
     if (!STRIPPED_RESPONSE_HEADERS.has(key.toLowerCase())) headers.set(key, value);
   });
+  headers.set('Cache-Control', 'no-store');
   return withCors(headers);
 }
 

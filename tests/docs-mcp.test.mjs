@@ -301,6 +301,28 @@ describe('docs-mcp handler', () => {
     assert.equal(await res.text(), sse);
   });
 
+  it('forces no-store on proxied responses, including the cacheable 405 Mintlify returns for a bare GET', async () => {
+    clearUpstashEnv();
+    globalThis.fetch = async () =>
+      new Response('{"jsonrpc":"2.0","error":{"code":-32000,"message":"Method not allowed."},"id":null}', {
+        status: 405,
+        headers: {
+          'content-type': 'application/json',
+          'cache-control': 'public, max-age=0, must-revalidate',
+          'cdn-cache-control': 'public, s-maxage=600, stale-while-revalidate=60',
+          'vercel-cdn-cache-control': 'public, s-maxage=600',
+        },
+      });
+    const res = await handler(
+      new Request('https://www.worldmonitor.app/api/docs-mcp', { method: 'GET', headers: { accept: 'application/json' } }),
+    );
+    assert.equal(res.status, 405, 'the upstream status is preserved');
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('cdn-cache-control'), null);
+    assert.equal(res.headers.get('vercel-cdn-cache-control'), null);
+    assert.equal(res.headers.get('content-type'), 'application/json');
+  });
+
   it('answers OPTIONS preflight locally with permissive CORS', async () => {
     const res = await handler(
       new Request('https://www.worldmonitor.app/api/docs-mcp', { method: 'OPTIONS' }),
