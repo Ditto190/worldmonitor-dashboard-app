@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { GetCableHealthResponse } from '../src/generated/server/worldmonitor/infrastructure/v1/service_server';
 import { getCachedJson, __resetKeyPrefixCacheForTests } from '../server/_shared/redis';
 import { getCableHealth } from '../server/worldmonitor/infrastructure/v1/get-cable-health';
+import { __testing__ as health } from '../api/health.js';
 
 const CACHE_KEY = 'cable-health-v1';
 const NGA_CACHE_KEY = 'cable-health-nga-warnings-v2';
 const META_KEY = 'seed-meta:cable-health';
 const NEG_SENTINEL = '__WM_NEG__';
 const originalFetch = globalThis.fetch;
+const originalNow = Date.now;
 const originalEnv = new Map<string, string | undefined>();
 
 function deferred<T>() {
@@ -42,6 +44,7 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    Date.now = originalNow;
     for (const [key, value] of originalEnv) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -93,7 +96,6 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
     store.delete(NGA_CACHE_KEY);
     upstreamAvailable = false;
     delayedKeys.set(CACHE_KEY, deferred<void>());
-    delayedKeys.set(META_KEY, deferred<void>());
 
     let responseSettled = false;
     const secondPromise = getCableHealth({} as never, {} as never).then((response) => {
@@ -148,5 +150,151 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
     assert.deepEqual(store.get(CACHE_KEY), response);
     assert.equal(upstreamCalls, 1);
     assert.equal(store.get(META_KEY).recordCount, 0);
+  });
+
+  let clockSequence = 0;
+  function clockFixture() {
+    let now = originalNow() + (++clockSequence) * 86_400_000;
+    const start = now;
+    const store = new Map<string, { value: string; expiresAt: number }>();
+    let upstreamAvailable = true;
+    let upstreamGate: Promise<void> | undefined;
+    let upstreamStarted = deferred<void>();
+    let rejectPublication = false;
+    const read = (key: string) => {
+      const entry = store.get(key);
+      return entry && entry.expiresAt > now ? JSON.parse(entry.value) : null;
+    };
+    Date.now = () => now;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (url.startsWith('https://redis.cable-health.test/get/')) {
+        const value = read(decodeURIComponent(url.split('/get/')[1]!));
+        return Response.json({ result: value === null ? null : JSON.stringify(value) });
+      }
+      if (url === 'https://redis.cable-health.test/') {
+        const [command, key, value, expiryKind, seconds, condition] = JSON.parse(String(init?.body));
+        assert.equal(command, 'SET');
+        assert.equal(expiryKind, 'EX');
+        if (key === CACHE_KEY && rejectPublication) return Response.json({ error: 'fixture write failed' });
+        if (condition === 'NX' && read(key) !== null) return Response.json({ result: null });
+        store.set(key, { value, expiresAt: now + Number(seconds) * 1000 });
+        return Response.json({ result: 'OK' });
+      }
+      if (url.startsWith('https://msi.nga.mil/')) {
+        upstreamStarted.resolve();
+        await upstreamGate;
+        return upstreamAvailable ? Response.json([]) : new Response('unavailable', { status: 503 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+    return {
+      start, store, read,
+      advance(minutes: number) { now = start + minutes * 60_000; },
+      failUpstream() { upstreamAvailable = false; store.delete(NGA_CACHE_KEY); },
+      gateUpstream(gate: Promise<void>) {
+        upstreamGate = gate;
+        upstreamStarted = deferred<void>();
+        store.delete(NGA_CACHE_KEY);
+        return upstreamStarted.promise;
+      },
+      failPublication() { rejectPublication = true; },
+      verdict() {
+        const payload = read(CACHE_KEY);
+        return health.classifyKey('cableHealth', CACHE_KEY, { allowOnDemand: false }, {
+          keyStrens: new Map([[CACHE_KEY, payload === null ? 0 : JSON.stringify(payload).length]]),
+          keyErrors: new Map(),
+          keyMetaValues: new Map([[META_KEY, JSON.stringify(read(META_KEY))]]),
+          keyMetaErrors: new Map(), now,
+        });
+      },
+    };
+  }
+
+  it('keeps health OK across the refresh deadline without renewing metadata on cache hits', async () => {
+    const f = clockFixture();
+    const first = await getCableHealth({} as never, {} as never);
+    assert.equal(f.verdict().status, 'OK');
+    f.advance(29);
+    assert.deepEqual(await getCableHealth({} as never, {} as never), first);
+    assert.equal(f.read(META_KEY).fetchedAt, f.start);
+
+    f.advance(30 + 1 / 60);
+    assert.equal(f.verdict().status, 'OK', 'payload survives until a late warm-ping can refresh it');
+    const second = await getCableHealth({} as never, {} as never);
+    assert.ok(second.generatedAt > first.generatedAt, 'recompute at 30 minutes despite retained data');
+    assert.equal(f.read(META_KEY).fetchedAt, second.generatedAt);
+  });
+
+  it('serves the old canonical snapshot to health while refresh is in flight', async () => {
+    const f = clockFixture();
+    const first = await getCableHealth({} as never, {} as never);
+    f.advance(31);
+    const gate = deferred<void>();
+    const started = f.gateUpstream(gate.promise);
+    const refreshing = getCableHealth({} as never, {} as never);
+    await started;
+    const duringRefresh = { status: f.verdict().status, payload: f.read(CACHE_KEY) };
+    gate.resolve();
+    await refreshing;
+    assert.equal(duringRefresh.status, 'OK');
+    assert.deepEqual(duringRefresh.payload, first);
+    assert.equal(f.verdict().status, 'OK');
+  });
+
+  it('failed refreshes keep the last-good deadline and cannot create immortal fallback data', async () => {
+    const f = clockFixture();
+    const first = await getCableHealth({} as never, {} as never);
+    const expiry = f.store.get(CACHE_KEY)!.expiresAt;
+    f.advance(31);
+    f.failUpstream();
+    assert.deepEqual(await getCableHealth({} as never, {} as never), first);
+    assert.equal(f.verdict().status, 'OK');
+    f.advance(61);
+    assert.deepEqual(await getCableHealth({} as never, {} as never), first);
+    assert.equal(f.read(META_KEY).fetchedAt, f.start);
+    assert.equal(f.store.get(CACHE_KEY)!.expiresAt, expiry);
+
+    f.advance(90);
+    await getCableHealth({} as never, {} as never);
+    assert.equal(f.read(CACHE_KEY), null);
+    assert.notEqual(f.verdict().status, 'OK');
+    assert.equal(f.read(META_KEY).fetchedAt, f.start);
+  });
+
+  it('does not claim a successful empty observation when the first upstream fetch fails', async () => {
+    const f = clockFixture();
+    f.failUpstream();
+    await getCableHealth({} as never, {} as never);
+    assert.equal(f.read(CACHE_KEY), null);
+    assert.equal(f.read(META_KEY), null);
+    assert.notEqual(f.verdict().status, 'OK');
+  });
+
+  it('does not advance success metadata if the canonical write fails', async () => {
+    const f = clockFixture();
+    f.failPublication();
+    await getCableHealth({} as never, {} as never);
+    assert.equal(f.read(CACHE_KEY), null);
+    assert.equal(f.read(META_KEY), null);
+  });
+
+  it('cannot overwrite a concurrent fresh publication while repairing an evicted fallback', async () => {
+    const f = clockFixture();
+    await getCableHealth({} as never, {} as never);
+    f.advance(31);
+    f.store.delete(CACHE_KEY);
+    f.failUpstream();
+    const gate = deferred<void>();
+    const started = f.gateUpstream(gate.promise);
+    const repairing = getCableHealth({} as never, {} as never);
+    await started;
+    const winner = { generatedAt: Date.now(), cables: {} };
+    f.store.set(CACHE_KEY, { value: JSON.stringify(winner), expiresAt: Date.now() + 90 * 60_000 });
+    f.store.set(META_KEY, { value: JSON.stringify({ fetchedAt: winner.generatedAt, recordCount: 0 }), expiresAt: Infinity });
+    gate.resolve();
+    await repairing;
+    assert.deepEqual(f.read(CACHE_KEY), winner);
+    assert.equal(f.read(META_KEY).fetchedAt, winner.generatedAt);
   });
 });
