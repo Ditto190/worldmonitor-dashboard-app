@@ -196,7 +196,7 @@ The `message` text identifies which limiter fired. Three distinct strings:
 
 Every per-minute denial **from this server (`/mcp`)** echoes your JSON-RPC `id` exactly — string or number, `0` included — so it satisfies the MCP schema's `RequestId` union and your client can settle the pending request as a rate-limit error instead of failing response validation. Two cases have no `id` to echo and keep `"id": null`: the `GET /mcp` SSE replay channel, which carries no JSON-RPC body at all, and a **notification** (a request sent with no `id`, such as `notifications/initialized`) — a notification that is rate-limited gets the error envelope rather than its usual bodyless `202`, and by definition has no id to correlate.
 
-The scope of that guarantee is deliberate. The separate [docs MCP server](/agent-discovery) at `/api/docs-mcp` and the A2A endpoint at `/api/a2a` also answer `-32029`, but their limiters run *before* the request body is parsed, so they have no id in hand and still reply `"id": null`. Handle a null id defensively when you integrate against those two endpoints.
+The scope of that guarantee is deliberate. The separate [docs MCP server](/agent-discovery) at `/api/docs-mcp` and the A2A endpoint at `/api/a2a` also answer `-32029`, but their limiters run *before* the request body is parsed, so they have no id in hand and still reply `"id": null`. Handle a null id defensively when you integrate against either of them.
 
 Example payload (per-user variant, API Business):
 
