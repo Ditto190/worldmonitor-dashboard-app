@@ -81,6 +81,12 @@ async function readRedisKey(key) {
   }
 }
 
+export const SOURCE_RETRY_CLAIM_SCRIPT = [
+  "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end",
+  "redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')",
+  'return 1',
+].join('\n');
+
 async function claimSourceRetry(claim) {
   if (!REDIS_URL || !REDIS_TOKEN) return false;
   try {
@@ -93,8 +99,7 @@ async function claimSourceRetry(claim) {
       },
       body: JSON.stringify([
         'EVAL',
-        "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end\n"
-          + "redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')\nreturn 1",
+        SOURCE_RETRY_CLAIM_SCRIPT,
         1, claim.key, claim.previousValue, claim.nextValue,
       ]),
       signal: AbortSignal.timeout(REDIS_READ_TIMEOUT_MS),
