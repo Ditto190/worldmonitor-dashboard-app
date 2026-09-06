@@ -5,6 +5,7 @@ import type { GetCableHealthResponse } from '../src/generated/server/worldmonito
 import { getCachedJson, __resetKeyPrefixCacheForTests } from '../server/_shared/redis';
 import { getCableHealth } from '../server/worldmonitor/infrastructure/v1/get-cable-health';
 import { __testing__ as health } from '../api/health.js';
+import { cableHealthToDigestInput } from '../shared/analysis-composite-adapters';
 
 const CACHE_KEY = 'cable-health-v1';
 const NGA_CACHE_KEY = 'cable-health-nga-warnings-v2';
@@ -91,6 +92,8 @@ describe('getCableHealth cache publication', { concurrency: 1 }, () => {
 
     const first = await getCableHealth({} as never, {} as never);
     assert.ok(Object.keys(first.cables).length > 0);
+    assert.deepEqual(Object.keys(first).sort(), ['cables', 'generatedAt']);
+    assert.deepEqual(cableHealthToDigestInput(first), [{ name: 'marea', status: first.cables.marea!.status }]);
 
     store.delete(CACHE_KEY);
     store.delete(NGA_CACHE_KEY);
