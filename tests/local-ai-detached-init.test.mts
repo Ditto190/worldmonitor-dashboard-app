@@ -61,15 +61,19 @@ describe('optional local-AI init stays off the dashboard critical path (#7779)',
       /mlWorker\.whenReady\('app-boot:headline-memory'\)/,
       'headline-memory boot must join the shared init, not spawn its own',
     );
+    // Settings enable-paths use init(), NOT whenReady(): cold-boot with the
+    // toggle off leaves the manager disabled, and whenReady() on a disabled
+    // manager resolves false without starting anything (#7796 review P1).
+    const settingsSection = src.slice(src.indexOf('this.unsubAiFlow = subscribeAiFlowChange'));
     assert.match(
-      src,
-      /mlWorker\.whenReady\('app-settings:browser-model'\)/,
-      'browser-model re-enable must join the shared init, not spawn its own',
+      settingsSection,
+      /void mlWorker\.init\(\)\.then\(\(ready\) => \{/,
+      'settings enable-paths must START the worker via init()',
     );
-    assert.match(
-      src,
-      /mlWorker\.whenReady\('app-settings:headline-memory'\)/,
-      'headline-memory re-enable must join the shared init, not spawn its own',
+    assert.doesNotMatch(
+      settingsSection,
+      /whenReady\('app-settings:/,
+      'settings enable-paths must not use whenReady(), which cannot start a disabled worker',
     );
     assert.match(
       src,

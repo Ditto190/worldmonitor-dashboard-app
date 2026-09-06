@@ -2419,8 +2419,13 @@ export class App {
       if (key === 'browserModel') {
         const s = getAiFlowSettings();
         if (s.browserModel) {
+          // init(), not whenReady(): cold-boot with the toggle off leaves the
+          // manager disabled, and whenReady() on a disabled manager resolves
+          // false without starting anything — the enable path must START the
+          // worker (#7796 review P1). init() is idempotent over an already
+          // running worker, so a racing boot continuation cannot duplicate it.
           const epoch = this.localAiInitEpoch;
-          void mlWorker.whenReady('app-settings:browser-model').then((ready) => {
+          void mlWorker.init().then((ready) => {
             if (!ready) return;
             if (this.localAiInitEpoch !== epoch || this.state.isDestroyed) return;
             // Re-honor Headline Memory's persisted value on parent re-enable.
@@ -2437,8 +2442,12 @@ export class App {
       }
       if (key === 'headlineMemory') {
         if (isHeadlineMemoryEnabled()) {
+          // init(), not whenReady(): Headline Memory can be toggled on while
+          // the manager was never started (web boot with browserModel off) —
+          // waiting would resolve false without starting anything, and its
+          // effective gate already implies the parent toggle (#7796 review P1).
           const epoch = this.localAiInitEpoch;
-          void mlWorker.whenReady('app-settings:headline-memory').then((ready) => {
+          void mlWorker.init().then((ready) => {
             if (!ready) return;
             if (this.localAiInitEpoch !== epoch || this.state.isDestroyed) return;
             if (!isHeadlineMemoryEnabled()) return;
