@@ -23,6 +23,8 @@ import {
   assertCountryBriefPresentation,
   assertCountryDevelopmentsRendered,
   assertDevelopmentsCoverage,
+  MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX,
+  snapshotCountryIndexAvailable,
   CHOKEPOINT_PAGE_CONTENT_VERSION,
   CHOKEPOINT_PAGE_LASTMOD_PATHS,
   COMPARISON_PAGE_LASTMOD_PATHS,
@@ -5811,6 +5813,52 @@ describe('country recent developments', () => {
       developmentsPageCount: 0,
       indexedCountryPageCount: 196,
     });
+  });
+
+  it('raises the coverage floor once the freeze declares the per-country index available (#7748)', () => {
+    // The digest alone covered 61 of 196; with the index most of the rest
+    // are reachable. A capture that ran with the index yet covers only the
+    // digest-era share means the top-up broke, and must not ship green.
+    assert.equal(MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX, 0.6);
+    assert.throws(
+      () => assertDevelopmentsCoverage({
+        carriesDevelopments: true,
+        developmentsPageCount: 61,
+        indexedCountryPageCount: 196,
+        countryIndexAvailable: true,
+      }),
+      /captured dated country developments for 61 of 196 indexed country pages; expected at least 118 with the per-country article index available.*developmentsCountryIndex/,
+    );
+    assert.throws(
+      () => assertDevelopmentsCoverage({
+        carriesDevelopments: true,
+        developmentsPageCount: 117,
+        indexedCountryPageCount: 196,
+        countryIndexAvailable: true,
+      }),
+      /expected at least 118/,
+    );
+    assertDevelopmentsCoverage({
+      carriesDevelopments: true,
+      developmentsPageCount: 118,
+      indexedCountryPageCount: 196,
+      countryIndexAvailable: true,
+    });
+    // The same 61 still passes a capture frozen without the index.
+    assertDevelopmentsCoverage({
+      carriesDevelopments: true,
+      developmentsPageCount: 61,
+      indexedCountryPageCount: 196,
+      countryIndexAvailable: false,
+    });
+    // The declaration is the snapshot's own; anything short of 'available'
+    // (absent, unavailable, error, not-requested) keeps the collapse floor.
+    assert.equal(snapshotCountryIndexAvailable({ coverage: { developmentsCountryIndex: { state: 'available' } } }), true);
+    for (const state of ['unavailable', 'error', 'not-requested', undefined]) {
+      assert.equal(snapshotCountryIndexAvailable({ coverage: { developmentsCountryIndex: { state } } }), false, `state=${state}`);
+    }
+    assert.equal(snapshotCountryIndexAvailable({ coverage: {} }), false);
+    assert.equal(snapshotCountryIndexAvailable(null), false);
   });
 
   it('passes frozen developments through to the dataset download', () => {

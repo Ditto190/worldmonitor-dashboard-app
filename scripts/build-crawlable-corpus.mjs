@@ -3414,24 +3414,49 @@ export function assertCountryBriefPresentation({ pagePath, html }) {
 // clears and a broken pipeline does not.
 export const MIN_DEVELOPMENTS_COVERAGE_RATIO = 0.1;
 
+// The higher floor once the freeze ran with the per-country GDELT index
+// (#7748): the digest alone names roughly a third of indexed countries, the
+// index reaches most of the rest, so a capture that declares the index
+// available yet covers under 60% means the index served little (a
+// materializer that just restarted holds hours, not the week) or the top-up
+// broke — either way a tail the size of the old one must not ship green.
+// Not 100%: no article pool names every country every week, and a floor the
+// weekly refresh cannot clear is the #7615 mistake again.
+export const MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX = 0.6;
+
 // Pipeline tripwire decision (#7615, retuned in #7620 follow-up), exported for
 // tests: the per-page guard proves frozen items render; this proves the capture
-// did not collapse.
+// did not collapse. `countryIndexAvailable` is the snapshot's own declaration
+// (coverage.developmentsCountryIndex.state === 'available'), so a snapshot
+// frozen before the index existed keeps the collapse floor.
 export function assertDevelopmentsCoverage({
   carriesDevelopments,
   developmentsPageCount,
   indexedCountryPageCount,
+  countryIndexAvailable = false,
 }) {
   if (!carriesDevelopments) return;
-  const floor = Math.max(1, Math.ceil(indexedCountryPageCount * MIN_DEVELOPMENTS_COVERAGE_RATIO));
+  const ratio = countryIndexAvailable
+    ? MIN_DEVELOPMENTS_COVERAGE_RATIO_WITH_COUNTRY_INDEX
+    : MIN_DEVELOPMENTS_COVERAGE_RATIO;
+  const floor = Math.max(1, Math.ceil(indexedCountryPageCount * ratio));
   if (developmentsPageCount < floor) {
     throw new Error(
       `crawlable corpus captured dated country developments for ${developmentsPageCount} `
-      + `of ${indexedCountryPageCount} indexed country pages; expected at least ${floor}. `
-      + 'A snapshot that carries developments should cover far more than this — check the '
-      + 'digest match and the freeze service key before republishing.',
+      + `of ${indexedCountryPageCount} indexed country pages; expected at least ${floor}`
+      + (countryIndexAvailable ? ' with the per-country article index available' : '')
+      + '. A snapshot that carries developments should cover far more than this — check the '
+      + (countryIndexAvailable
+        ? 'per-country index top-up (coverage.developmentsCountryIndex) and the digest match '
+        : 'digest match and the freeze service key ')
+      + 'before republishing.',
     );
   }
+}
+
+/** Whether a frozen snapshot declares the per-country article index served during its freeze (#7748). */
+export function snapshotCountryIndexAvailable(livePulse) {
+  return livePulse?.coverage?.developmentsCountryIndex?.state === 'available';
 }
 
 export function renderCountryPage({
@@ -5159,6 +5184,7 @@ export async function buildCorpus({
     carriesDevelopments: snapshotCarriesDevelopments,
     developmentsPageCount,
     indexedCountryPageCount: data.countries.length,
+    countryIndexAvailable: snapshotCountryIndexAvailable(data.livePulse),
   });
 
   const chokepointHubRows = buildChokepointHubRows(data.chokepoints, data.livePulse);

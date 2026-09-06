@@ -278,15 +278,19 @@ The rule that decides whether a news item is about a country: its display name o
 
 ### Brief Grounding
 
-The set of digest headlines a country brief is generated from and may cite; a brief's citations index that set and nothing else. Grounding is *thin* when its headlines come from fewer distinct Publisher Families than the publish floor requires, in which case no brief is requested or published and the page keeps only the dated headlines — a multi-horizon outlook synthesised from one outlet is not published on an indexed page. The dashboard's anonymous brief instead falls back to global stories when nothing names the country; the prerendered corpus refuses that fallback. See also: Publisher Family, Country Mention, Feed Digest.
+The set of headlines a country brief is generated from and may cite — the week's digest rows that name the country, topped up from the Country Article Index where the digest leaves the country short; a brief's citations index that set and nothing else. Grounding is *thin* when its headlines come from fewer distinct Publisher Families than the publish floor requires, in which case no brief is requested or published and the page keeps only the dated headlines — a multi-horizon outlook synthesised from one outlet is not published on an indexed page. The dashboard's anonymous brief instead falls back to global stories when nothing names the country; the prerendered corpus refuses that fallback. See also: Publisher Family, Country Mention, Country Article Index, Feed Digest.
 
 ### Publisher Family
 
-The newsroom behind one or more feed labels — several editions or regional feeds of one outlet are a single family, and an unmapped label is its own family so no feed can silently claim to corroborate another. Every rule that speaks of "N independent sources" counts families, never labels. See also: Brief Grounding.
+The newsroom behind one or more feed labels — several editions or regional feeds of one outlet are a single family, and an unmapped label is its own family so no feed can silently claim to corroborate another. Every rule that speaks of "N independent sources" counts families, never labels. For the brief floor, rows published on one site are also one publisher whatever their labels say, because an index row is labelled by its domain while a digest row is labelled by its feed. See also: Brief Grounding, Country Article Index.
+
+### Country Article Index
+
+A rolling, per-country index of GDELT GKG articles the bulk materializer keeps alongside its topic products: each article is filed under the countries its location mentions name (FIPS codes mapped to ISO-2), primary mentions first, and an article naming many countries is filed under its primary country only. Served through the GDELT search route's `country:` query form, it is the grounding pool for the countries the week's digest never names. A location mention alone never publishes a row: the title must pass the Country Mention rule, so an index row on a country page is about that country, not merely set in it. See also: Brief Grounding, Country Mention, Enrichment Tail.
 
 ### Enrichment Tail
 
-The indexed country pages that carry no dated development in a given weekly capture. Its size is a property of the grounding pool — how many countries the week's digest actually names — not of whether the enrichment ran, and it is recorded as a count in the capture's coverage rather than gated to zero, because no news pool names every country every week. See also: Recent Developments, Brief Grounding.
+The indexed country pages that carry no dated development in a given weekly capture. Its size is a property of the grounding pool — how many countries the week's digest and the Country Article Index actually name — not of whether the enrichment ran, and it is recorded as a count in the capture's coverage rather than gated to zero, because no article pool names every country every week. A capture that declares the index available is held to a higher coverage floor at build time than one frozen without it, so a tail the size of the digest-only era cannot ship as a green build. See also: Recent Developments, Brief Grounding, Country Article Index.
 
 ## Prediction Markets
 
