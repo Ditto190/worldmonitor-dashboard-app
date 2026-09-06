@@ -355,6 +355,7 @@ const STACK_OVERFLOW = /Maximum call stack size exceeded|too much recursion/i;
  * abort that genuinely escaped a `.catch`.
  */
 const LEAKED_ABORT = /^(?:AbortError: )?The user aborted a request\.?$/;
+const LEAKED_DEADLINE = /^(?:TimeoutError: )?signal timed out$/;
 /**
  * A marketing document frame: `/`, `/pro`, or an absolute URL on any production,
  * preview, or custom host with one of those paths. Query strings, hashes, and a
@@ -491,6 +492,20 @@ export function marketingBeforeSend<T extends PolicyEvent>(event: T): T | null {
   // covered by the standing `(?:AbortError: )?The user aborted a request` entry
   // in `src/bootstrap/sentry-init.ts`.
   if (!hasFirstParty && LEAKED_ABORT.test(msg)) return null;
+
+  // The deadline sibling (WORLDMONITOR-11Y). `AbortSignal.timeout` rejects with
+  // this exact wording, and `createTimeoutSignal` reproduces it on engines
+  // lacking the native API. So unlike the bare-abort case above, this message
+  // CAN be ours. The census argument that justifies LEAKED_ABORT does not
+  // transfer here.
+  //
+  // What carries it instead is the frame gate alone. The browser fires these
+  // from internal infra at the timer boundary, so a leaked deadline arrives with
+  // zero frames; a first-party fetch that genuinely failed to handle its own
+  // deadline surfaces a `/pro/assets/*.js` frame and is kept. Dashboard-side the
+  // same class is dropped by the `!hasFirstParty` gate in
+  // `src/bootstrap/sentry-init.ts` (WORLDMONITOR-66/-62).
+  if (!hasFirstParty && LEAKED_DEADLINE.test(msg)) return null;
 
   // Safari-masked injected script. The observed event (WORLDMONITOR-110,
   // `TypeError: Attempting to change value of a readonly property.` on iOS
