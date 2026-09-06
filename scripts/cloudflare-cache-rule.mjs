@@ -887,16 +887,20 @@ export async function runCloudflareCacheRule(
     // The claim lands before a superseded rule goes, so the URLs it covered are
     // never without an eligible rule in between. Re-read before deleting: a
     // DELETE is by id and cannot be undone by this script, so a rule that
-    // changed hands since the plan (a dashboard edit in the window) stops the
-    // apply rather than being removed on the strength of a stale read.
+    // changed since the plan (a dashboard edit in the window) stops the apply
+    // rather than being removed on the strength of a stale read. The re-read
+    // is compared with the planning snapshot, not re-classified: the ref that
+    // identifies a retired rule is immutable, so an edit to its expression or
+    // description would still classify as retired and be deleted.
     let retiredCount = 0;
     if (plan.retire.length) {
       const current = await cloudflareRequest(
         `/zones/${zoneId}/rulesets/phases/${CACHE_PHASE}/entrypoint`,
         { token, fetchImpl },
       );
+      const planned = new Map(ruleset.rules.map((entry) => [entry.id, stableStringify(entry)]));
       const targets = plan.retire.map((id) => ({ id, live: current.rules.find((entry) => entry.id === id) }));
-      const changed = targets.filter(({ live }) => live && !isRetiredRule(live));
+      const changed = targets.filter(({ id, live }) => live && stableStringify(live) !== planned.get(id));
       if (changed.length) {
         writeLine(
           stderr,

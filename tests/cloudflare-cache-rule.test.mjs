@@ -1238,12 +1238,18 @@ describe('cloudflare cache rule runner', () => {
 
   it('stops before the DELETE when the retired rule changed since planning', async () => {
     // A DELETE is by id and this script cannot undo it. Between the plan and
-    // the delete somebody took the rule over — same id, their own ref, a new
-    // description — so it is no longer a rule this script may remove.
+    // the delete somebody edited the rule in the dashboard — same id and, since
+    // Cloudflare never lets a ref change, the same ref, so it still classifies
+    // as retired — and it is no longer the rule the plan was made against.
     const rule = buildCorpusCacheRule();
     const entry = retiredEntryRule();
     const managed = { ...rule, id: 'corpus-id' };
-    const takenOver = { ...entry, ref: 'another-owner', description: 'Homepage cache (dashboard)' };
+    const takenOver = {
+      ...entry,
+      description: 'Homepage cache (dashboard)',
+      expression: '(http.host eq "www.worldmonitor.app" and http.request.uri.path eq "/pricing")',
+      last_updated: '2026-09-06T14:00:00Z',
+    };
     const intercepted = interceptedFetch([
       cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
       cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, managed] }),
