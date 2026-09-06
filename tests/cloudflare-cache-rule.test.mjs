@@ -172,6 +172,20 @@ function ruleClaims(expression) {
 
 const sorted = (iterable) => [...iterable].sort();
 
+/** The live "WWW entry HTML" rule as read from the zone on 2026-09-06, under a fixture id. */
+function retiredEntryRule(overrides = {}) {
+  return {
+    id: 'entry-id',
+    ref: 'www_entry_html_origin_cache',
+    description: 'WWW entry HTML - use origin CDN cache headers',
+    expression: '(http.host eq "www.worldmonitor.app" and http.request.method eq "GET" and http.request.uri.path in {"/" "/dashboard"} and http.request.uri.query eq "")',
+    action: 'set_cache_settings',
+    action_parameters: { cache: true, browser_ttl: { mode: 'respect_origin' }, edge_ttl: { mode: 'bypass_by_default' } },
+    enabled: true,
+    ...overrides,
+  };
+}
+
 describe('cloudflare corpus cache rule', () => {
   const rule = buildCorpusCacheRule();
 
@@ -574,7 +588,7 @@ describe('cloudflare corpus cache rule', () => {
         plan.id === undefined || plan.id === 'mine',
         `plan targeted ${plan.id}, which is not this rule`,
       );
-      assert.deepEqual(plan.retire ?? [], [], 'a rule this script has not taken over is never deleted');
+      assert.deepEqual(plan.retire, [], 'a rule this script has not taken over is never deleted');
     }
   });
 
@@ -606,6 +620,110 @@ describe('cloudflare corpus cache rule', () => {
     assert.deepEqual(planApply([bypass, { ...rule, id: 'mine' }, agentBypass], rule).retire, ['agent']);
 
     assert.deepEqual(planApply([bypass, { ...rule, id: 'mine' }], rule).retire, []);
+  });
+
+  it('blocks on an earlier cache-enabling rule that claims an owned URL, whatever it is called', () => {
+    // #7804 named the two rules that were wrong. The invariant is wider: no
+    // earlier cache: true writer may quote a URL this rule owns, or it wins on
+    // every request the guard declines. A dashboard rule under a fresh name
+    // must not be able to reproduce the incident unnoticed.
+    const bypass = { id: 'a', description: 'Bypass cache - WWW documents', action: 'set_cache_settings', action_parameters: { cache: false }, enabled: true };
+    const stray = {
+      id: 'stray',
+      ref: 'stray',
+      description: 'Homepage cache (dashboard)',
+      action: 'set_cache_settings',
+      action_parameters: { cache: true, edge_ttl: { mode: 'bypass_by_default' } },
+      enabled: true,
+      expression: '(http.host eq "www.worldmonitor.app" and http.request.uri.path in {"/" "/dashboard"} and http.request.uri.query eq "")',
+    };
+    const plan = planApply([bypass, stray, { ...rule, id: 'mine' }], rule);
+    assert.equal(plan.op, 'blocked');
+    assert.deepEqual(plan.retire, [], 'a rule this script has not taken over is never deleted');
+    assert.deepEqual(
+      plan.diff.earlierWriters.map(({ id, overlap }) => ({ id, overlap })),
+      [{ id: 'stray', overlap: ['/', '/dashboard'] }],
+    );
+    assert.match(plan.blockers[0], /earlier cache rule at position 1 \("Homepage cache \(dashboard\)"\) enables the cache for "\/", "\/dashboard"/);
+
+    // Nothing to sit above yet still blocks: created last, the managed rule would land below the claimant.
+    assert.equal(planApply([bypass, stray], rule).op, 'blocked');
+    // A cache-disabling earlier rule is the bypass this rule exists to override, never a blocker.
+    assert.equal(planApply([bypass, { ...stray, action_parameters: { cache: false } }, { ...rule, id: 'mine' }], rule).op, 'none');
+    // A claimant scoped to another host cannot match a www URL.
+    const elsewhere = { ...stray, expression: '(http.host eq "maps.worldmonitor.app" and http.request.uri.path eq "/")' };
+    assert.equal(planApply([bypass, elsewhere, { ...rule, id: 'mine' }], rule).op, 'none');
+    // A retired rule is deleted, not reported as a claimant.
+    const retiring = planApply([bypass, retiredEntryRule(), { ...rule, id: 'mine' }], rule);
+    assert.equal(retiring.op, 'none');
+    assert.deepEqual(retiring.retire, ['entry-id']);
+    assert.deepEqual(retiring.diff.earlierWriters, []);
+  });
+
+  it('leaves the zone\'s legitimate earlier cache writers alone', () => {
+    // The cache phase as read on 2026-09-06: every rule before ours that sets
+    // cache: true, expressions verbatim. None quotes a claimed path — the
+    // static-asset rule quotes the /blog/_astro/ carve-out, which is why claims
+    // come from the surface model and not from the generated expression's own
+    // literals.
+    const writers = [
+      { id: 'static', description: 'Static assets - WWW use cache-control', expression: '(starts_with(http.request.uri.path, "/assets/")) or (starts_with(http.request.uri.path, "/map-styles/")) or (starts_with(http.request.uri.path, "/data/")) or (starts_with(http.request.uri.path, "/textures/")) or (starts_with(http.request.uri.path, "/pro/assets/")) or (starts_with(http.request.uri.path, "/favico/")) or (starts_with(http.request.uri.path, "/blog/_astro/"))' },
+      { id: 'api', description: 'API - api.worldmonitor.app use cache-control', expression: '(http.host eq "api.worldmonitor.app") and\n(http.request.method eq "GET") and\nstarts_with(http.request.uri.path, "/api/") and\nnot starts_with(http.request.uri.path, "/api/health")' },
+      { id: 'proxy', description: 'Proxy - proxy.worldmonitor.app use cache-control', expression: '(http.host eq "proxy.worldmonitor.app") and\n(http.request.method eq "GET")' },
+      { id: 'maps', description: ' maps.worldmonitor.app', expression: '(http.host eq " maps.worldmonitor.app")' },
+      { id: 'blog', description: 'Blog', expression: '(http.request.uri.path wildcard r"/blog/og/*") or (http.request.uri.path wildcard r"/blog/images/*") or (http.request.uri.path wildcard r"/blog/_astro/*")' },
+    ].map((entry) => ({ ...entry, action: 'set_cache_settings', action_parameters: { cache: true }, enabled: true }));
+    const diff = diffLiveRuleset([...writers, { ...rule, id: 'mine' }], rule);
+    assert.equal(diff.status, 'current', diff.problems.join('; '));
+    assert.deepEqual(diff.earlierWriters, []);
+  });
+
+  it('reports a retired description under a foreign ref as a collision and never deletes it', () => {
+    const bypass = { id: 'a', description: 'Bypass cache - WWW documents', action: 'set_cache_settings', action_parameters: { cache: false }, enabled: true };
+    const foreign = retiredEntryRule({ id: 'foreign', ref: 'another-owner' });
+    const plan = planApply([bypass, foreign, { ...rule, id: 'mine' }], rule);
+    assert.equal(plan.op, 'blocked');
+    assert.deepEqual(plan.retire, []);
+    assert.deepEqual(plan.diff.collisions.map(({ id, ref }) => ({ id, ref })), [{ id: 'foreign', ref: 'another-owner' }]);
+    assert.ok(
+      plan.blockers.some((message) => /retired description "WWW entry HTML - use origin CDN cache headers" under its own ref "another-owner"/.test(message)),
+      plan.blockers.join('; '),
+    );
+
+    // The live entry rule carries the ref the script knows, so a dashboard rename still retires it...
+    const renamed = retiredEntryRule({ description: 'renamed in the dashboard' });
+    assert.deepEqual(planApply([bypass, renamed, { ...rule, id: 'mine' }], rule).retire, ['entry-id']);
+    // ...and a copy created without a ref (Cloudflare fills in its id) retires by description.
+    const defaulted = retiredEntryRule({ ref: 'entry-id' });
+    assert.deepEqual(planApply([bypass, defaulted, { ...rule, id: 'mine' }], rule).retire, ['entry-id']);
+  });
+
+  it('never retires the managed rule itself, whatever the dashboard renamed it to', () => {
+    const bypass = { id: 'a', description: 'Bypass cache - WWW documents', action: 'set_cache_settings', action_parameters: { cache: false }, enabled: true };
+    // Identified by its chosen ref, renamed to a retired description: a PATCH
+    // fixes the name; nothing is deleted.
+    const renamedMine = { ...rule, id: 'mine', description: RETIRED_CACHE_RULES[0].description };
+    const plan = planApply([bypass, renamedMine], rule);
+    assert.equal(plan.op, 'update');
+    assert.equal(plan.id, 'mine');
+    assert.deepEqual(plan.retire, []);
+    // A default-ref copy renamed the same way is unidentifiable as ours and is
+    // replaced: created fresh, then the stray copy retired. One rule survives.
+    const lostCopy = { ...renamedMine, ref: 'mine' };
+    const replaced = planApply([bypass, lostCopy], rule);
+    assert.equal(replaced.op, 'create');
+    assert.deepEqual(replaced.retire, ['mine']);
+  });
+
+  it('stays under Cloudflare\'s expression ceiling with room for more agents', () => {
+    // Cloudflare rejects an expression over 4096 characters at write time, which
+    // --apply would report and --print would not. Each agent in the policy costs
+    // about 55 characters on the homepage carve-out.
+    assert.ok(rule.expression.length < 4096, `expression is ${rule.expression.length} characters`);
+    assert.ok(
+      rule.expression.length < 3600,
+      `expression is ${rule.expression.length} characters: under 500 of headroom, split the rule before adding agents`,
+    );
   });
 });
 
@@ -657,6 +775,20 @@ describe('cloudflare cache rule drift report', () => {
     assert.equal(missing.status, 'missing');
     assert.deepEqual(missing.retired.map(({ id }) => id), ['entry-id']);
     assert.equal(missing.problems.length, 2);
+    assert.deepEqual(missing.blockers, []);
+  });
+
+  it('names the leftovers even when the managed identity is ambiguous', () => {
+    const legacy = { ...rule, id: 'legacy' };
+    delete legacy.ref;
+    const renamed = { ...rule, id: 'managed', description: 'renamed in the dashboard' };
+    const diff = diffLiveRuleset([bypass, retiredEntryRule(), renamed, legacy], rule);
+    assert.equal(diff.ambiguous, true);
+    assert.match(diff.problems.at(-1), /retired rule "WWW entry HTML/);
+    // Nothing is deleted until the identity collision is repaired.
+    const plan = planApply([bypass, retiredEntryRule(), renamed, legacy], rule);
+    assert.equal(plan.op, 'duplicates');
+    assert.deepEqual(plan.retire, []);
   });
 
   it('catches the rule that looks right in the dashboard but can never win', () => {
@@ -999,18 +1131,19 @@ describe('cloudflare cache rule runner', () => {
 
   it('retires the entry rule with a DELETE only after its documents are claimed (#7804)', async () => {
     // Order matters: the PATCH that claims / and /dashboard lands first, so the
-    // two URLs are never without an eligible rule in between. Then the entry
-    // rule goes, and the re-read confirms the zone holds one guarded rule.
+    // two URLs are never without an eligible rule in between. Then the zone is
+    // re-read, the entry rule goes, and the last read confirms one guarded rule.
     const rule = buildCorpusCacheRule();
     const { ref: _ref, ...ruleWithoutRef } = rule;
     const bypass = { id: 'bypass-id', description: 'Bypass cache - WWW documents', action: 'set_cache_settings', action_parameters: { cache: false }, enabled: true };
-    const entry = { id: 'entry-id', ref: 'entry-id', description: 'WWW entry HTML - use origin CDN cache headers', action: 'set_cache_settings', action_parameters: { cache: true }, enabled: true };
+    const entry = retiredEntryRule();
     const live = { ...rule, id: 'corpus-id', ref: 'corpus-id', expression: '(http.host eq "the #7747 expression")' };
     const claimed = { ...live, expression: rule.expression };
     const intercepted = interceptedFetch([
       cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
       cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [bypass, entry, live] }),
       cloudflareResponse(claimed),
+      cloudflareResponse({ id: 'ruleset-id', version: '63', rules: [bypass, entry, claimed] }),
       cloudflareResponse({ id: 'ruleset-id', version: '64', rules: [bypass, claimed] }),
       cloudflareResponse({ id: 'ruleset-id', version: '64', rules: [bypass, claimed] }),
     ]);
@@ -1027,18 +1160,59 @@ describe('cloudflare cache rule runner', () => {
       { url: ZONE_PATH, method: 'GET', body: undefined },
       { url: ENTRYPOINT_PATH, method: 'GET', body: undefined },
       { url: `${RULES_PATH}/corpus-id`, method: 'PATCH', body: ruleWithoutRef },
+      { url: ENTRYPOINT_PATH, method: 'GET', body: undefined },
       { url: `${RULES_PATH}/entry-id`, method: 'DELETE', body: undefined },
       { url: ENTRYPOINT_PATH, method: 'GET', body: undefined },
     ]);
-    assert.match(stdout.chunks.join(''), /applied \(update, retired 1\)/);
+    const out = stdout.chunks.join('');
+    assert.match(
+      out,
+      /retiring "WWW entry HTML - use origin CDN cache headers" \(entry-id\): \(http\.host eq "www\.worldmonitor\.app"/,
+      'the deleted expression is logged: it is recorded nowhere else once it is gone',
+    );
+    assert.match(out, /applied \(update, retired 1\)/);
+  });
+
+  it('creates a missing managed rule before retiring its predecessor', async () => {
+    const rule = buildCorpusCacheRule();
+    const bypass = { id: 'bypass-id', description: 'Bypass cache - WWW documents', action: 'set_cache_settings', action_parameters: { cache: false }, enabled: true };
+    const entry = retiredEntryRule();
+    const managed = { ...rule, id: 'corpus-id' };
+    const intercepted = interceptedFetch([
+      cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
+      cloudflareResponse({ id: 'ruleset-id', version: '1', rules: [bypass, entry] }),
+      cloudflareResponse(managed),
+      cloudflareResponse({ id: 'ruleset-id', version: '2', rules: [bypass, entry, managed] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '3', rules: [bypass, managed] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '3', rules: [bypass, managed] }),
+    ]);
+    const stdout = outputSink();
+    const code = await runCloudflareCacheRule(['--apply'], {
+      env: RUN_ENV,
+      fetchImpl: intercepted.fetchImpl,
+      stdout: stdout.stream,
+      stderr: outputSink().stream,
+    });
+
+    assert.equal(code, 0);
+    assert.deepEqual(intercepted.calls.map(({ url, method }) => `${method} ${url}`), [
+      `GET ${ZONE_PATH}`,
+      `GET ${ENTRYPOINT_PATH}`,
+      `POST ${RULES_PATH}`,
+      `GET ${ENTRYPOINT_PATH}`,
+      `DELETE ${RULES_PATH}/entry-id`,
+      `GET ${ENTRYPOINT_PATH}`,
+    ]);
+    assert.match(stdout.chunks.join(''), /applied \(create, retired 1\)/);
   });
 
   it('retires a leftover entry rule even when the managed rule is already current', async () => {
     const rule = buildCorpusCacheRule();
-    const entry = { id: 'entry-id', ref: 'entry-id', description: 'WWW entry HTML - use origin CDN cache headers', action: 'set_cache_settings', action_parameters: { cache: true }, enabled: true };
+    const entry = retiredEntryRule();
     const managed = { ...rule, id: 'corpus-id' };
     const intercepted = interceptedFetch([
       cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, managed] }),
       cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, managed] }),
       cloudflareResponse({ id: 'ruleset-id', version: '63', rules: [managed] }),
       cloudflareResponse({ id: 'ruleset-id', version: '63', rules: [managed] }),
@@ -1055,18 +1229,70 @@ describe('cloudflare cache rule runner', () => {
     assert.deepEqual(intercepted.calls.map(({ url, method }) => `${method} ${url}`), [
       `GET ${ZONE_PATH}`,
       `GET ${ENTRYPOINT_PATH}`,
+      `GET ${ENTRYPOINT_PATH}`,
       `DELETE ${RULES_PATH}/entry-id`,
       `GET ${ENTRYPOINT_PATH}`,
     ]);
     assert.match(stdout.chunks.join(''), /applied \(retired 1\)/);
   });
 
-  it('--check goes red on a leftover entry rule alone', async () => {
+  it('stops before the DELETE when the retired rule changed since planning', async () => {
+    // A DELETE is by id and this script cannot undo it. Between the plan and
+    // the delete somebody took the rule over — same id, their own ref, a new
+    // description — so it is no longer a rule this script may remove.
     const rule = buildCorpusCacheRule();
-    const entry = { id: 'entry-id', ref: 'entry-id', description: 'WWW entry HTML - use origin CDN cache headers', action: 'set_cache_settings', action_parameters: { cache: true }, enabled: true };
+    const entry = retiredEntryRule();
+    const managed = { ...rule, id: 'corpus-id' };
+    const takenOver = { ...entry, ref: 'another-owner', description: 'Homepage cache (dashboard)' };
     const intercepted = interceptedFetch([
       cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
-      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, { ...rule, id: 'corpus-id' }] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, managed] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '63', rules: [takenOver, managed] }),
+    ]);
+    const stderr = outputSink();
+    const code = await runCloudflareCacheRule(['--apply'], {
+      env: RUN_ENV,
+      fetchImpl: intercepted.fetchImpl,
+      stdout: outputSink().stream,
+      stderr: stderr.stream,
+    });
+
+    assert.equal(code, 1);
+    assert.equal(intercepted.calls.length, 3, 'no DELETE');
+    assert.match(stderr.chunks.join(''), /not deleting entry-id: the rule changed since planning/);
+  });
+
+  it('treats a retired rule that vanished between plan and delete as already done', async () => {
+    // A concurrent --apply or a hand delete reached the wanted state first; the
+    // second run must not fail on it (and must not report a deletion it did not make).
+    const rule = buildCorpusCacheRule();
+    const managed = { ...rule, id: 'corpus-id' };
+    const intercepted = interceptedFetch([
+      cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [retiredEntryRule(), managed] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '63', rules: [managed] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '63', rules: [managed] }),
+    ]);
+    const stdout = outputSink();
+    const code = await runCloudflareCacheRule(['--apply'], {
+      env: RUN_ENV,
+      fetchImpl: intercepted.fetchImpl,
+      stdout: stdout.stream,
+      stderr: outputSink().stream,
+    });
+
+    assert.equal(code, 0);
+    assert.ok(!intercepted.calls.some(({ method }) => method === 'DELETE'), 'nothing left to delete');
+    const out = stdout.chunks.join('');
+    assert.match(out, /already retired: entry-id is no longer in the zone/);
+    assert.match(out, /no change: "WWW corpus HTML - use origin CDN cache headers" already matches \(ruleset version 63\)/);
+  });
+
+  it('--check goes red on a leftover entry rule alone', async () => {
+    const rule = buildCorpusCacheRule();
+    const intercepted = interceptedFetch([
+      cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [retiredEntryRule(), { ...rule, id: 'corpus-id' }] }),
     ]);
     const stderr = outputSink();
     const code = await runCloudflareCacheRule(['--check'], {
@@ -1081,12 +1307,34 @@ describe('cloudflare cache rule runner', () => {
     assert.match(stderr.chunks.join(''), /drift \(drifted\): retired rule "WWW entry HTML/);
   });
 
-  it('returns failure and stops when a DELETE fails', async () => {
+  it('refuses to write past an unnamed earlier claimant', async () => {
     const rule = buildCorpusCacheRule();
-    const entry = { id: 'entry-id', ref: 'entry-id', description: 'WWW entry HTML - use origin CDN cache headers', action: 'set_cache_settings', action_parameters: { cache: true }, enabled: true };
+    const stray = retiredEntryRule({ id: 'stray', ref: 'stray', description: 'Homepage cache (dashboard)' });
     const intercepted = interceptedFetch([
       cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
-      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, { ...rule, id: 'corpus-id' }] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [stray, { ...rule, id: 'corpus-id' }] }),
+    ]);
+    const stderr = outputSink();
+    const code = await runCloudflareCacheRule(['--apply'], {
+      env: RUN_ENV,
+      fetchImpl: intercepted.fetchImpl,
+      stdout: outputSink().stream,
+      stderr: stderr.stream,
+    });
+
+    assert.equal(code, 1);
+    assert.equal(intercepted.calls.length, 2, 'no write');
+    assert.match(stderr.chunks.join(''), /refusing to write: an earlier cache rule at position 0 \("Homepage cache \(dashboard\)"\)/);
+  });
+
+  it('returns failure and stops when a DELETE fails', async () => {
+    const rule = buildCorpusCacheRule();
+    const entry = retiredEntryRule();
+    const managed = { ...rule, id: 'corpus-id' };
+    const intercepted = interceptedFetch([
+      cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, managed] }),
+      cloudflareResponse({ id: 'ruleset-id', version: '62', rules: [entry, managed] }),
       cloudflareResponse(null, { status: 500, success: false, errors: [{ message: 'delete failed' }] }),
     ]);
     const stderr = outputSink();
@@ -1098,8 +1346,32 @@ describe('cloudflare cache rule runner', () => {
     });
 
     assert.equal(code, 1);
-    assert.equal(intercepted.calls.length, 3);
+    assert.equal(intercepted.calls.length, 4);
     assert.match(stderr.chunks.join(''), /Cloudflare DELETE .* failed \(500\).*delete failed/);
+  });
+
+  it('names the request when the transport fails mid-apply', async () => {
+    // A timeout on a write is ambiguous — it may have landed — so the operator
+    // needs to know which request to re-read for.
+    const rule = buildCorpusCacheRule();
+    const edited = { ...rule, id: 'managed-id', expression: '(http.host eq "wrong.example")' };
+    const responses = [
+      cloudflareResponse({ id: 'zone-id', name: 'worldmonitor.app' }),
+      cloudflareResponse({ id: 'ruleset-id', version: '2', rules: [edited] }),
+    ];
+    const stderr = outputSink();
+    const code = await runCloudflareCacheRule(['--apply'], {
+      env: RUN_ENV,
+      fetchImpl: async () => {
+        if (responses.length) return responses.shift();
+        throw new Error('The operation was aborted due to timeout');
+      },
+      stdout: outputSink().stream,
+      stderr: stderr.stream,
+    });
+
+    assert.equal(code, 1);
+    assert.match(stderr.chunks.join(''), /Cloudflare PATCH .*\/rules\/managed-id did not complete \(a write may still have landed\): The operation was aborted due to timeout/);
   });
 
   it('returns failure and stops when a PATCH fails', async () => {

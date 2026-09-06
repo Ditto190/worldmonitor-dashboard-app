@@ -155,6 +155,17 @@ What this adds to the convention:
   model) and knows which rules it superseded (`RETIRED_CACHE_RULES`):
   `--check` reports one still in the zone as drift wherever it sits, and
   `--apply` deletes it after the claim lands.
+- **Pin the invariant, not the two names that broke it.** The retired list
+  names the rules that were wrong; a third dashboard rule under a fresh name
+  would have slipped past it, which is the shape
+  `pinned-value-allowlist-freezes-a-snapshot-not-the-invariant.md` warns
+  about. So `--check` also scans structurally: any enabled earlier rule that
+  sets `cache: true` and quotes a path the generator claims is reported, and
+  it blocks `--apply` rather than being deleted — a name the generator does
+  not know is a human's call. The claim set comes from the surface model, not
+  from the generated expression, because the expression also quotes its own
+  carve-outs (`/blog/_astro/`) and the zone's static-asset rule quotes that
+  one legitimately.
 - **A document that varies by User-Agent needs the UA in the guard.**
   `middleware.ts` routes the declared AI agents on `/` to `/home.md` under
   `Vary: User-Agent`, which Cloudflare ignores. The origin's `no-store` keeps
@@ -171,6 +182,9 @@ What this adds to the convention:
 
 ## Related
 
+- `docs/solutions/design-patterns/pinned-value-allowlist-freezes-a-snapshot-not-the-invariant.md`
+  — why `RETIRED_CACHE_RULES` is paired with a structural earlier-writer scan
+  instead of standing alone.
 - `docs/solutions/conventions/verify-the-verifier-mutation-test-every-detection-layer.md`
   — the corpus probe is registered in the sweep's mandatory-probe gate
   (threshold *and* marker list) so it cannot itself go silently missing.
