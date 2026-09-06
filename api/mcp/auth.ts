@@ -794,11 +794,18 @@ export async function runContextPreChecks(
  *  on a PUBLIC method), which errs to the lower of the two ceilings sold.
  *  user_key (#4859) shares the per-USER limiter with pro — the principal is
  *  the key OWNER, so a user with an OAuth connection and a dashboard key gets
- *  one combined budget instead of two stackable ones. */
+ *  one combined budget instead of two stackable ones.
+ *  `id` is the caller's already-validated JSON-RPC request id (#7818). It rides
+ *  down so the denial is a spec-valid `JSONRPCError` a client can correlate
+ *  with its pending request; the MCP schema's `RequestId` union is
+ *  `string | number`, so a null id there fails client-side response validation
+ *  outright. It defaults to null for the GET/SSE replay caller, which is a
+ *  transport-level request carrying no JSON-RPC id to echo. */
 export async function applyPerMinuteLimit(
   context: McpAuthContext,
   headers: Record<string, string> = {},
   perMinute: number = MCP_DEFAULT_BURST_PER_MINUTE,
+  id: unknown = null,
 ): Promise<Response | null> {
   if (context.kind === 'env_key') {
     const rl = getMcpRatelimit();
@@ -813,7 +820,7 @@ export async function applyPerMinuteLimit(
           limit: MCP_DEFAULT_BURST_PER_MINUTE,
           windowSeconds: 60,
         });
-        return rpcError(null, -32029, `Rate limit exceeded. Max ${MCP_DEFAULT_BURST_PER_MINUTE} requests per minute per API key.`, headers);
+        return rpcError(id, -32029, `Rate limit exceeded. Max ${MCP_DEFAULT_BURST_PER_MINUTE} requests per minute per API key.`, headers);
       }
     } catch { /* graceful degradation */ }
     return null;
@@ -841,7 +848,7 @@ export async function applyPerMinuteLimit(
         limit: perMinute,
         windowSeconds: 60,
       });
-      return rpcError(null, -32029, `Rate limit exceeded. Max ${perMinute} requests per minute per user.`, headers);
+      return rpcError(id, -32029, `Rate limit exceeded. Max ${perMinute} requests per minute per user.`, headers);
     }
   } catch { /* graceful degradation */ }
   return null;
@@ -853,13 +860,20 @@ export async function applyPerMinuteLimit(
  *  shared bucket so x-forwarded-for spoofing can't rotate identities). Fail-OPEN
  *  on Upstash error, matching `applyPerMinuteLimit` — the discovery response is a
  *  cheap in-memory payload, so availability beats strict enforcement here.
- *  Returns null on success/skip, a Response on a real 60/min limit hit. */
-export async function applyAnonDiscoveryLimit(req: Request, headers: Record<string, string> = {}): Promise<Response | null> {
+ *  Returns null on success/skip, a Response on a real 60/min limit hit.
+ *  `id` carries the caller's already-validated JSON-RPC request id (#7818) so
+ *  the denial stays correlatable — see `applyPerMinuteLimit` for why a null id
+ *  breaks MCP client-side response validation. */
+export async function applyAnonDiscoveryLimit(
+  req: Request,
+  headers: Record<string, string> = {},
+  id: unknown = null,
+): Promise<Response | null> {
   const rl = getMcpAnonRatelimit();
   if (!rl) return null;
   try {
     const { success } = await rl.limit(`ip:${getClientIp(req)}`);
-    if (!success) return rpcError(null, -32029, 'Rate limit exceeded. Max 60 unauthenticated discovery requests per minute per IP.', headers);
+    if (!success) return rpcError(id, -32029, 'Rate limit exceeded. Max 60 unauthenticated discovery requests per minute per IP.', headers);
   } catch { /* graceful degradation */ }
   return null;
 }
