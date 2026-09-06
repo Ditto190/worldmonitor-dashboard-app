@@ -707,7 +707,10 @@ caught by freshness monitoring on the published data, never by the tick's exit
 status. A seeder running as its own cron handles the same failure the same way
 but exits non-zero on purpose, so the platform's crash badge is what surfaces a
 source that has stopped answering; a bundle member's tick absorbs that exit,
-which is the difference between the two.
+which is the difference between the two. That badge is only a signal while the
+platform will run the seeder again: a standalone seeder whose newest build has
+failed is ticking its previous Active Deployment, and there the same non-zero
+exit ends its schedule outright.
 
 ### Starved Tick
 
@@ -736,6 +739,25 @@ sides — above the sweep's own duration, or the head expires before the tail
 lands and the marker is never written; below the refresh interval, or every row
 still reads current when the member next comes due and the sweep completes
 having fetched nothing. See also: Section Deferral, Bundle Wall Budget.
+
+## Seeder Deployment Lifecycle
+
+### Active Deployment
+
+The build a Railway cron seeder actually starts on every scheduled tick, as
+distinct from the newest deployment record, which may be a build that failed or
+a push the watch paths declined. Ticks re-run the active build and leave no
+deployment record of their own, so a seeder with narrow watch paths can run the
+same active build for days while its record list fills with declined pushes.
+
+A failed build never becomes active; the seeder keeps ticking the previous
+active build. Once that build's tick exits non-zero it is a crashed deployment,
+and behind a failed build nothing is left to schedule: no further tick runs
+until a new successful build exists, which only a push that touches the watch
+paths or an explicit rebuild from source produces. A crashed deployment that is
+itself the newest is re-run on every tick, so the same non-zero exit is noisy
+but recoverable in one state and silent and permanent in the other. See also:
+Graceful Skip, Seed-Owned Key.
 
 ## Market Data Claims
 
@@ -818,3 +840,4 @@ The comparison needs enough accumulated history to be meaningful and is suppress
 - *"Pool"* had been used for both a labelled market category and the complete set of markets — these are distinct. A pool is always a labelled subset; the complete set has no pool and must be requested as an explicit union.
 - *"Variant"* resolves differently per surface — a served host on the web, a locally stored selection on desktop. Only the web sense is addressable by URL; a desktop artifact is never variant-specific, so a variant accompanying a desktop artifact request is an identity label rather than a selector.
 - *"wingbits"* as a publication source means different things across the two Theater Posture producers — the military-flights seeder's keyed regional supplement after adsb.lol, but the relay loop's last-resort fallback. The recorded producer disambiguates which reading applies; never compare the token across producers.
+- *"Crashed"* had been used for both a build that failed and a run that exited non-zero — these are distinct. A failed build never started a container and leaves the previous Active Deployment serving; a crash is a started run that exited non-zero. Only the second is a seeder outcome; the first is a platform outcome that decides whether the seeder will ever run again.
