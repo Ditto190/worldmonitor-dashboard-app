@@ -11,6 +11,9 @@
       "status": "excluded",
       "references": [
         {
+          "path": "scripts/measure-trade-animation-rebuild.mjs"
+        },
+        {
           "path": "src/components/LiveNewsPanel.ts"
         },
         {
