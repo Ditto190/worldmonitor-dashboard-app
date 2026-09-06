@@ -184,6 +184,10 @@ export function classifyServiceDeploy({
   // Paths changed by one commit, used to judge whether a single refusal was the
   // filter working. Same default, same reason.
   changedPathsIn = () => null,
+  // The service's cron expression from the live deployment config, or null for
+  // an always-on service. Decides whether a crashed serving deployment behind a
+  // failed or in-flight build is reported as a stopped cron.
+  cronSchedule = null,
 }) {
   const base = {
     service,
@@ -297,17 +301,25 @@ export function classifyServiceDeploy({
   // resolved.
   const forHead = (statuses) => ordered.find((deployment) => statuses.includes(deployment.status)
     && deployment.meta?.commitHash === headSha);
-  // Railway ticks the serving deployment while a newer build is FAILED or in
-  // flight; once that deployment crashes nothing is left to schedule. See
-  // docs/solutions/integration-issues/railway-cron-crash-behind-failed-build-never-self-heals.md.
-  const failedBuild = running
-    ? ordered.find((deployment) => FAILED_STATUSES.includes(deployment.status) && newerThanRunning(deployment))
+  // The newest build attempt since the serving source was built. A failure
+  // counts only until a later attempt starts; an in-flight attempt reports
+  // through the PENDING_BUILD and BUILD_STALLED branches below.
+  const newestAttempt = running
+    ? ordered.find((deployment) => (FAILED_STATUSES.includes(deployment.status)
+      || IN_FLIGHT_STATUSES.includes(deployment.status)) && newerThanRunning(deployment))
     : null;
+  const failedBuild = newestAttempt && FAILED_STATUSES.includes(newestAttempt.status) ? newestAttempt : null;
   const inFlightForHead = forHead(IN_FLIGHT_STATUSES);
-  const cronStopped = running?.status === 'CRASHED' && Boolean(failedBuild || inFlightForHead);
-  const stoppedCron = cronStopped
-    ? '; that deployment has CRASHED and its cron will not tick again until a build succeeds'
-    : '';
+  // Railway ticks a cron service's serving deployment while a newer build is
+  // FAILED or in flight; once that deployment crashes nothing is left to
+  // schedule. An always-on service is restarted instead. See
+  // docs/solutions/integration-issues/railway-cron-crash-behind-failed-build-never-self-heals.md.
+  const servingCrashedBehindBuild = running?.status === 'CRASHED' && Boolean(failedBuild || inFlightForHead);
+  const stoppedCron = !servingCrashedBehindBuild
+    ? ''
+    : cronSchedule
+      ? '; that deployment has CRASHED and its cron will not tick again until a build succeeds'
+      : '; that deployment has CRASHED';
   const buildFailedDetail = () => {
     const failedSha = failedBuild.meta?.commitHash;
     return `the build for ${failedSha ? failedSha.slice(0, 9) : 'an unidentified commit'} failed, so ${runningSha ? runningSha.slice(0, 9) : 'an unidentified source'} is still serving`
@@ -967,6 +979,9 @@ async function main() {
     changedPathsIn: (sha) => (
       classificationDeadlineReached() ? null : changedPathsIn(sha)
     ),
+    cronSchedule: liveById[service.id]?.deploy?.cronSchedule
+      ?? registryByService.get(service.name)?.cronSchedule
+      ?? null,
   });
 
   const shallowResults = classifyFleetWithinDeadline(services, histories, {
