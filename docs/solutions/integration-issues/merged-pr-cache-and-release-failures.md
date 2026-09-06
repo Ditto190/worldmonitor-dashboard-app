@@ -62,7 +62,10 @@ Running `cloudflare-cache-rule.mjs --apply` cannot repair this API rule.
 
 Verify two anonymous GETs to
 `https://api.worldmonitor.app/api/conflict/v1/list-acled-events`.
-Both must return HTTP 401 with `no-store` and neither may be a shared-cache HIT.
+Both must return HTTP 401 with `no-store` and the API's JSON rejection body, and
+neither may be a shared-cache HIT. A `cf-cache-status` of `EXPIRED` also proves the
+entry was stored. A Cloudflare HTML challenge page from an operator machine proves
+nothing; verify from the Actions runner with a manual sweep run instead.
 Repeat the full sweep to verify that public weather and public RPC caching still work.
 
 ## Refresh old document entries
@@ -81,8 +84,12 @@ Observed after deployment:
   `CDN-Cache-Control: public, s-maxage=600, stale-while-revalidate=60` header.
 
 These comparisons isolate stale cached metadata. They do not prove which cache
-tier retains each entry. After approval, purge only the affected canonical URLs
-at Cloudflare, starting with `/blog`, `/blog/`, and `/llms.txt`. If old headers
+tier retains each entry. After approval, re-probe each canonical URL first and
+purge at Cloudflare only the ones still serving old headers. On September 6,
+`/llms.txt` already reached a HIT with the new header while `/blog/` still
+alternated. The header-less `/blog/` responses were Cloudflare MISSes whose
+`x-vercel-id` was hours older than the request, so that copy is served from a tier
+at or behind Vercel and a Cloudflare purge alone may not clear it. If old headers
 remain, inspect the Vercel cache before further changes. Do not change origin TTLs
 or increase the test retry budget without new evidence.
 
@@ -127,5 +134,12 @@ tests passed, including refusal when each required secret is absent.
 
 The live sweep reproduced seven passes, two failures, and one credential-gated
 skip. The failures were the anonymous API rejection cache and document cache.
+The document-cache group also carries RSC and markdown negative controls. The
+September 6, 01:15 UTC scheduled run passed all three canonical HIT checks and
+failed only because an `RSC: 1` request for `/docs/documentation` received
+`text/html` ([run 34003400437](https://github.com/koala73/worldmonitor/actions/runs/34003400437)).
+A purge does not address that shape, and it passed again on a later probe, so
+treat it as a separate negotiation issue rather than evidence against the
+corrections above.
 Production acceptance remains incomplete until the operational corrections above
 are applied and the unchanged live assertions pass.

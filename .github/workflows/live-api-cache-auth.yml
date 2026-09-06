@@ -54,7 +54,11 @@ name: Live API Cache/Auth Sweep
 #     independently of commits.
 #   - successful Vercel Production deployment: checks the deployed headers.
 #     A push can precede that deployment by several minutes. Probe-only changes
-#     that do not deploy are checked by the schedule or workflow_dispatch.
+#     that do not deploy are checked by the schedule or workflow_dispatch. The
+#     fake-auth probes are cache-busted, but the canonical corpus/document probes
+#     read whatever Cloudflare already holds, so a header regression in the new
+#     build can stay green here until the pre-deploy entries expire (600s +
+#     60s); the schedule is the net for that window.
 #   - workflow_dispatch: manual re-runs from the Actions UI.
 # NOT pull_request: the target is live production, not PR code — a PR run could
 # neither exercise its own changes nor fail for reasons the PR caused.

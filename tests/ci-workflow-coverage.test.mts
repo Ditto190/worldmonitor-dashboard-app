@@ -457,11 +457,29 @@ describe('live cache sweep deployment timing', () => {
     }
     assert.equal(workflow.concurrency, undefined);
     assert.equal(job.concurrency['cancel-in-progress'], false);
+    // Keyed on the deployment environment, as in mcp-live-smoke: one shared group
+    // would let schedule, dispatch and Production runs evict each other while pending.
+    assert.match(job.concurrency.group, /deployment\.environment/);
     assert.match(job.steps[0].with.ref, /github\.event\.deployment\.sha/);
+    assert.match(job.steps[0].with.ref, /\|\| github\.sha/, 'schedule and dispatch runs must fall back to github.sha');
     const probe = job.steps.find((step: { env?: Record<string, string> }) => step.env?.LIVE_API_CACHE_TESTS === '1');
     assert.ok(probe);
-    assert.match(probe.run, /pass_count.*-lt 9/);
-    assert.match(probe.run, /corpus-edge-cache document-edge-cache/);
+    // The marker list and the pass count are both load-bearing (see the run step's
+    // comment): a name dropped from the loop silently stops enforcing that probe
+    // group, and the count must track the suite's markers plus its self-check.
+    const probeLoop = probe.run.match(/for probe in ([a-z -]+); do/);
+    assert.ok(probeLoop, 'the run step must enumerate the mandatory probe markers');
+    const enforced = probeLoop[1].split(' ');
+    assert.deepEqual(enforced, [
+      'bootstrap-auth', 'warm-cache', 'generated-rpc', 'premium-rpc',
+      'mcp-protocol', 'oauth-metadata', 'corpus-edge-cache', 'document-edge-cache',
+    ]);
+    const suite = read(resolve(root, 'tests/live-api-cache-auth-regression.test.mjs'));
+    const emitted = [...suite.matchAll(/markProbeCompleted\('([a-z-]+)'\)/g)].map((m) => m[1]);
+    assert.deepEqual([...enforced].sort(), [...emitted].sort(), 'the workflow must enforce exactly the markers the suite emits');
+    const required = probe.run.match(/"\$pass_count" -lt (\d+)/);
+    assert.ok(required, 'the run step must require a minimum pass count');
+    assert.equal(Number(required[1]), emitted.length + 1, 'required passes = mandatory probe groups + the suite self-check');
   });
 });
 
