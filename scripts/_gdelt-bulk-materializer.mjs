@@ -3,12 +3,26 @@ import { decodeHtmlEntities } from './_html-entities.mjs';
 // and the ISO form legacy snapshots carry, so the article window/sort survives
 // the format change (#5863 review).
 import { gdeltSeenDateToMs } from './_conflict-gdelt.mjs';
+import { GDELT_FIPS_TO_ISO2 } from './_conflict-gdelt-bulk.mjs';
 import { inflateRawSync } from 'node:zlib';
 
 const GDELT_STORAGE_ORIGIN = 'https://storage.googleapis.com/data.gdeltproject.org';
 const ARTICLE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const TIMELINE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_ARTICLES_PER_TOPIC = 10;
+// Per-country article index (#7748). The crawlable corpus freezes weekly, and
+// a small country may see one English article a week, so the window is a
+// week rather than the topics' day. Ten rows per country bound the key at
+// roughly 250 countries x 10 rows x ~250 bytes, far under the 5MB write
+// ceiling; the read side (freeze, search route) keeps at most five.
+export const GDELT_COUNTRY_INDEX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const MAX_ARTICLES_PER_COUNTRY = 10;
+// A record naming more countries than this is a roundup ("Pacific leaders
+// meet"). It is indexed under its primary country only: filing it under every
+// country it names would hand each small country the same unrelated story,
+// the contamination class that put a UN world-map vote on Togo's page.
+const MAX_COUNTRIES_PER_INDEXED_RECORD = 3;
+const MAX_INDEX_TITLE_CHARS = 200;
 const MAX_SOURCE_URLS = 5;
 const MAX_GKG_ZIP_BYTES = 15_000_000;
 // A real 15-minute GKG cohort measures ~17.7MB uncompressed (5.7MB zipped,
@@ -357,6 +371,101 @@ function mergeArticles(
     .slice(0, limit);
 }
 
+// Countries a GKG record names through V1LOCATIONS, FIPS mapped to ISO-2.
+// The primary country is the one with the most location mentions (ties go to
+// the first named); a record is indexed under a non-primary country only when
+// it names few countries in total. The read side still requires the title to
+// mention the country (shared/country-mention.js) before publishing a row —
+// this pass only decides which rows are worth a slot in the index.
+export function recordCountryMentions(record) {
+  const counts = new Map();
+  for (const location of Array.isArray(record?.locations) ? record.locations : []) {
+    const iso2 = GDELT_FIPS_TO_ISO2[String(location?.countryCode || '').trim().toUpperCase()];
+    if (!iso2) continue;
+    counts.set(iso2, (counts.get(iso2) ?? 0) + 1);
+  }
+  if (counts.size === 0) return [];
+  let primary = '';
+  let primaryCount = 0;
+  for (const [code, count] of counts) {
+    if (count > primaryCount) {
+      primary = code;
+      primaryCount = count;
+    }
+  }
+  const countryCount = counts.size;
+  return [...counts.keys()]
+    .filter((code) => code === primary || countryCount <= MAX_COUNTRIES_PER_INDEXED_RECORD)
+    .map((code) => ({ code, primary: code === primary, countryCount }));
+}
+
+function countryIndexRow(record, mention) {
+  return {
+    title: String(record.title || '').slice(0, MAX_INDEX_TITLE_CHARS),
+    url: record.url,
+    source: record.source,
+    date: toSeenDate(record.date),
+    tone: Number.isFinite(record.tone) ? record.tone : 0,
+    primary: mention.primary,
+    countryCount: mention.countryCount,
+  };
+}
+
+function isCountryIndexRow(row, cutoffMs) {
+  if (!row || typeof row !== 'object') return false;
+  if (typeof row.url !== 'string' || !row.url || typeof row.title !== 'string' || !row.title) return false;
+  const dateMs = gdeltSeenDateToMs(row.date);
+  return Number.isFinite(dateMs) && dateMs >= cutoffMs;
+}
+
+function compareCountryIndexRows(a, b) {
+  return Number(Boolean(b.primary)) - Number(Boolean(a.primary))
+    || gdeltSeenDateToMs(b.date) - gdeltSeenDateToMs(a.date)
+    || a.url.localeCompare(b.url);
+}
+
+/**
+ * Rolling per-country index of GKG articles: `byCountry[ISO2]` holds up to
+ * MAX_ARTICLES_PER_COUNTRY rows inside GDELT_COUNTRY_INDEX_WINDOW_MS, primary
+ * mentions first and newest first within a tier. Fresh records win a URL tie
+ * against the previous index so a re-seen article carries its latest title.
+ */
+export function buildGdeltCountryIndex({ records, previous = null, nowMs = Date.now() }) {
+  const cutoff = nowMs - GDELT_COUNTRY_INDEX_WINDOW_MS;
+  const fresh = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    if (!record?.url || !record?.title) continue;
+    for (const mention of recordCountryMentions(record)) {
+      const rows = fresh.get(mention.code) ?? [];
+      rows.push(countryIndexRow(record, mention));
+      fresh.set(mention.code, rows);
+    }
+  }
+  const previousByCountry = previous?.byCountry && typeof previous.byCountry === 'object'
+    ? previous.byCountry
+    : {};
+  const codes = [...new Set([...fresh.keys(), ...Object.keys(previousByCountry)])].sort();
+  const byCountry = {};
+  for (const code of codes) {
+    const byUrl = new Map();
+    const candidates = [
+      ...(fresh.get(code) ?? []),
+      ...(Array.isArray(previousByCountry[code]) ? previousByCountry[code] : []),
+    ];
+    for (const row of candidates) {
+      if (!isCountryIndexRow(row, cutoff) || byUrl.has(row.url)) continue;
+      byUrl.set(row.url, row);
+    }
+    const rows = [...byUrl.values()].sort(compareCountryIndexRows).slice(0, MAX_ARTICLES_PER_COUNTRY);
+    if (rows.length > 0) byCountry[code] = rows;
+  }
+  return {
+    byCountry,
+    windowMs: GDELT_COUNTRY_INDEX_WINDOW_MS,
+    fetchedAt: new Date(nowMs).toISOString(),
+  };
+}
+
 function mergeTimeline(previousPoints, currentPoints, nowMs) {
   const cutoff = nowMs - TIMELINE_WINDOW_MS;
   const byDate = new Map();
@@ -587,6 +696,11 @@ export function materializeGdeltBulk({
     nowMs,
     500,
   );
+  const countryIndex = buildGdeltCountryIndex({
+    records: allRecords,
+    previous: previous.countryIndex,
+    nowMs,
+  });
   return {
     cursor,
     freshTopicCount,
@@ -595,5 +709,6 @@ export function materializeGdeltBulk({
     unrest: { events: unrest, fetchedAt: nowMs },
     positive: { events: positive, fetchedAt: nowMs },
     reference: { articles: referenceArticles, fetchedAt: nowMs },
+    countryIndex,
   };
 }

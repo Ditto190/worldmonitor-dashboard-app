@@ -30,6 +30,7 @@ export {
   GDELT_BULK_CONFLICT_KEY,
   GDELT_BULK_UNREST_KEY,
   GDELT_BULK_ARTICLES_KEY,
+  GDELT_BULK_COUNTRY_ARTICLES_KEY,
   POSITIVE_EVENTS_RPC_KEY,
   POSITIVE_EVENTS_BOOTSTRAP_KEY,
 } from './_gdelt-bulk-contract.mjs';
@@ -39,6 +40,7 @@ import {
   GDELT_BULK_CONFLICT_KEY,
   GDELT_BULK_UNREST_KEY,
   GDELT_BULK_ARTICLES_KEY,
+  GDELT_BULK_COUNTRY_ARTICLES_KEY,
   POSITIVE_EVENTS_RPC_KEY,
   POSITIVE_EVENTS_BOOTSTRAP_KEY,
 } from './_gdelt-bulk-contract.mjs';
@@ -67,6 +69,11 @@ const UNREST_TTL = 4.5 * 60 * 60;
 // a skipped tick must degrade to a warning, not a page (#5863 review).
 const POSITIVE_TTL = 3 * 60 * 60;
 const ARTICLES_TTL = 2 * 86_400;
+// The per-country index (#7748) is read by a weekly freeze; two days, like the
+// reference articles, so a materializer that stops surfaces as
+// `seed-unavailable` on the search route within two days instead of serving
+// a week-old index as current.
+const COUNTRY_ARTICLES_TTL = ARTICLES_TTL;
 const POSITIVE_EVENTS_META_KEY = 'seed-meta:positive-events:geo';
 
 function timelineKey(series, topic) {
@@ -328,9 +335,14 @@ export async function fetchMaterializedGdelt(deps = {}) {
     _fetchFiles = fetchGdeltBulkFiles,
   } = deps;
   const nowMs = _now();
-  const [previousIntel, previousState] = await Promise.all([
+  // The country index is read back from its own key rather than carried in
+  // the state key: the state already holds the compacted geo batches and the
+  // conflict window, and ~250 countries of rows would push it toward the 5MB
+  // write ceiling (#7748).
+  const [previousIntel, previousState, previousCountryIndex] = await Promise.all([
     _readSnapshot(GDELT_INTEL_KEY),
     _readSnapshot(GDELT_BULK_STATE_KEY),
+    _readSnapshot(GDELT_BULK_COUNTRY_ARTICLES_KEY),
   ]);
   const downloaded = await _fetchFiles({
     afterTimestamp: previousState?.cursor || {},
@@ -370,6 +382,7 @@ export async function fetchMaterializedGdelt(deps = {}) {
       intel: previousIntel,
       timelines: previousTimelines,
       reference: previousState?.reference,
+      countryIndex: previousCountryIndex,
     },
     nowMs,
   });
@@ -428,6 +441,7 @@ export async function fetchMaterializedGdelt(deps = {}) {
     _unrest: materialized.unrest,
     _positive: materialized.positive,
     _reference: materialized.reference,
+    _countryIndex: materialized.countryIndex,
     _conflict: conflictPayload,
     _state: {
       cursor: {
@@ -507,6 +521,10 @@ export async function afterPublish(data, _meta, deps = {}) {
     {
       label: GDELT_BULK_ARTICLES_KEY,
       run: () => _writeExtraKey(GDELT_BULK_ARTICLES_KEY, data._reference, ARTICLES_TTL),
+    },
+    {
+      label: GDELT_BULK_COUNTRY_ARTICLES_KEY,
+      run: () => _writeExtraKey(GDELT_BULK_COUNTRY_ARTICLES_KEY, data._countryIndex, COUNTRY_ARTICLES_TTL),
     },
     {
       label: POSITIVE_EVENTS_META_KEY,
@@ -592,6 +610,7 @@ export const RUN_SEED_OPTS = {
     { key: GDELT_BULK_CONFLICT_KEY, ttlSeconds: CONFLICT_TTL },
     { key: GDELT_BULK_UNREST_KEY, ttlSeconds: UNREST_TTL },
     { key: GDELT_BULK_ARTICLES_KEY, ttlSeconds: ARTICLES_TTL },
+    { key: GDELT_BULK_COUNTRY_ARTICLES_KEY, ttlSeconds: COUNTRY_ARTICLES_TTL },
     { key: POSITIVE_EVENTS_RPC_KEY, ttlSeconds: POSITIVE_TTL },
     { key: POSITIVE_EVENTS_BOOTSTRAP_KEY, ttlSeconds: POSITIVE_TTL },
     { key: POSITIVE_EVENTS_META_KEY, ttlSeconds: TIMELINE_TTL },
