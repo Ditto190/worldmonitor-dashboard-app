@@ -46,8 +46,8 @@ import {
 import { INTEL_HOTSPOTS, CONFLICT_ZONES } from '@/config/geo';
 import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import { withTimeout } from '@/utils/with-timeout';
+import { fetchPredictions, reprioritizeMarketsForRegion as reprioritizePredictionMarketsForRegion } from '@/services/prediction';
 import {
-  fetchPredictions,
   fetchEarthquakes,
   fetchWeatherAlerts,
   fetchCanadaRoads,
@@ -475,6 +475,10 @@ export class DataLoaderManager implements AppModule {
   private readonly marketLoadGuard = new LatestRequestGuard();
   private readonly physicalComparisonLoadGuard = new LatestRequestGuard();
   private readonly mineralProductionLoadGuard = new LatestRequestGuard();
+  // Prediction ranking snapshots ctx.resolvedLocation at fetch start. A late
+  // region arrival (e.g. delayed geolocation, #7778) bumps the generation so
+  // the re-ranking pass — not the stale in-flight request — owns the commit.
+  private readonly predictionRegionGuard = new LatestRequestGuard();
   private globalTenderGeneration = 0;
   private globalTenderFilters: GlobalTenderFilters = {};
   private activeGlobalTenderScopedGeneration: number | null = null;
@@ -2977,23 +2981,48 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadPredictions(): Promise<void> {
+    // Capture the region at fetch start: a late region arrival re-ranks the
+    // kept candidate set (reprioritizeLateRegionPredictions) instead of letting
+    // this stale request overwrite the panel with the old ordering (#7778).
+    const regionGeneration = this.predictionRegionGuard.begin();
     try {
       const predictions = await fetchPredictions({ region: this.ctx.resolvedLocation });
-      this.ctx.latestPredictions = predictions;
-      (this.ctx.panels['polymarket'] as PredictionPanel | undefined)?.renderPredictions(predictions);
-
-      this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });
-      this.ctx.statusPanel?.updateApi('Polymarket', { status: 'ok' });
-      dataFreshness.recordUpdate('polymarket', predictions.length);
-      dataFreshness.recordUpdate('predictions', predictions.length);
-
+      if (this.ctx.isDestroyed || !this.predictionRegionGuard.isCurrent(regionGeneration)) return;
+      this.commitPredictionResults(predictions);
       void this.runCorrelationAnalysis();
     } catch (error) {
+      if (this.ctx.isDestroyed || !this.predictionRegionGuard.isCurrent(regionGeneration)) return;
       this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'error', errorMessage: String(error) });
       this.ctx.statusPanel?.updateApi('Polymarket', { status: 'error' });
       dataFreshness.recordError('polymarket', String(error));
       dataFreshness.recordError('predictions', String(error));
     }
+  }
+
+  /**
+   * Re-rank the kept candidate set after a late region arrival without another
+   * network request solely for geolocation (#7778). Same regional match rules
+   * and normal relevance order as fetchPredictions; no eligibility, limit,
+   * market-selection or freshness-schedule changes. Bumping the generation
+   * makes an older in-flight loadPredictions() drop its stale commit.
+   */
+  reprioritizeLateRegionPredictions(region: string): void {
+    this.predictionRegionGuard.begin();
+    if (this.ctx.isDestroyed || !region || region === 'global') return;
+    const kept = this.ctx.latestPredictions;
+    if (kept.length === 0) return;
+    const reranked = reprioritizePredictionMarketsForRegion(kept, region, 15);
+    this.commitPredictionResults(reranked);
+  }
+
+  private commitPredictionResults(predictions: import('@/services/prediction').PredictionMarket[]): void {
+    this.ctx.latestPredictions = predictions;
+    (this.ctx.panels['polymarket'] as PredictionPanel | undefined)?.renderPredictions(predictions);
+
+    this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });
+    this.ctx.statusPanel?.updateApi('Polymarket', { status: 'ok' });
+    dataFreshness.recordUpdate('polymarket', predictions.length);
+    dataFreshness.recordUpdate('predictions', predictions.length);
   }
 
   async loadForecasts(): Promise<void> {

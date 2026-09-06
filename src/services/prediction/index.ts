@@ -54,6 +54,30 @@ function tagRegions(title: string): string[] {
     .map(([region]) => region);
 }
 
+/**
+ * Shared regional prioritization: stable sort that hoists markets tagged with
+ * `region` ahead of the rest while preserving the base relevance order inside
+ * each partition. Used by fetchPredictions for the network result and by
+ * reprioritizeMarketsForRegion for late-region updates without a refetch, so
+ * both paths apply identical match rules and ordering (#7778).
+ */
+export function reprioritizeMarketsForRegion<T extends { regions?: string[] }>(
+  markets: T[],
+  region: string | undefined,
+  limit = 15,
+): T[] {
+  if (!region || region === 'global' || markets.length === 0) return markets.slice(0, limit);
+  const ranked = markets
+    .map((market, index) => ({ market, index }))
+    .sort((a, b) => {
+      const aMatch = a.market.regions?.includes(region) ? 1 : 0;
+      const bMatch = b.market.regions?.includes(region) ? 1 : 0;
+      return bMatch - aMatch || a.index - b.index;
+    })
+    .map(({ market }) => market);
+  return ranked.slice(0, limit);
+}
+
 function protoToMarket(m: { title: string; yesPrice: number; volume: number; url: string; closesAt: number; category: string; source?: string }): PredictionMarket {
   return {
     title: m.title,
@@ -107,13 +131,7 @@ export async function fetchPredictions(opts?: { region?: string }): Promise<Pred
   }, []);
 
   if (opts?.region && opts.region !== 'global' && markets.length > 0) {
-    const sorted = [...markets];
-    sorted.sort((a, b) => {
-      const aMatch = a.regions?.includes(opts.region!) ? 1 : 0;
-      const bMatch = b.regions?.includes(opts.region!) ? 1 : 0;
-      return bMatch - aMatch;
-    });
-    return sorted.slice(0, 15);
+    return reprioritizeMarketsForRegion(markets, opts.region, 15);
   }
   return markets.slice(0, 15);
 }

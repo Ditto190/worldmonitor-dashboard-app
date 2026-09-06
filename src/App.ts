@@ -205,7 +205,7 @@ import {
 import { replaceRawI18nKeyPlaceholders } from '@/app/i18n-raw-key-healer';
 import { startAccountAuthHandoff } from '@/app/account-auth-handoff';
 import { TierPreferenceHandoff } from '@/app/tier-preference-handoff';
-import { resolveUserRegion, resolvePreciseUserCoordinates, type PreciseCoordinates } from '@/utils/user-location';
+import { initialRegionFromCache, resolveUserRegion, resolvePreciseUserCoordinates, type PreciseCoordinates } from '@/utils/user-location';
 import { showProBanner } from '@/components/ProBanner';
 import { getAuthState, initAuthState, subscribeAuthState } from '@/services/auth-state';
 import {
@@ -300,6 +300,10 @@ export class App {
   private pendingDeepLinkSearchQuery: string | null = null;
   private chokepointDeepLinkTimer: number | null = null;
   private stockDeepLinkTimer: number | null = null;
+  // At most one automatic precise mobile recenter per startup (#7778). Set
+  // when the late position callback fires; cleared on destroy/re-init so a new
+  // App instance gets its own single attempt.
+  private autoGeoRecenterApplied = false;
 
   private panelLayout: PanelLayoutManager;
   private dataLoader: DataLoaderManager;
@@ -2713,8 +2717,22 @@ export class App {
         ? resolvePreciseUserCoordinates(5000)
         : Promise.resolve(null);
 
-    const resolvedRegion = await resolveUserRegion();
-    this.state.resolvedLocation = resolvedRegion;
+    // Readiness must not wait for permission/position work (#7778): seed the
+    // initial region synchronously from usable cached region/coordinates, else
+    // timezone, else global (desktop map startup stays global because layout
+    // reads this value before the background refinement below can land), then
+    // let the shared in-flight lookup refine it in the background without
+    // gating layout or event-handler setup. Desktop keeps its prior
+    // region-ranked predictions via the same background path; only the map
+    // view and the precise recenter stay mobile-only.
+    this.state.resolvedLocation = initialRegionFromCache(this.state.isMobile);
+    void resolveUserRegion().then(
+      (region) => {
+        if (this.state.isDestroyed) return;
+        this.applyLateGeoRegion(region);
+      },
+      () => { /* failed location keeps the synchronous fallback usable */ },
+    );
 
     // Phase 1: Layout (creates map + panels — they'll find hydrated data).
     // init() is async so the dynamic MapContainer import can resolve before
@@ -2728,8 +2746,27 @@ export class App {
     window.addEventListener('online', this.handleConnectivityChange);
     window.addEventListener('offline', this.handleConnectivityChange);
 
+    // The single automatic precise recenter for this startup (mobile only,
+    // never desktop): only while the app is alive and no explicit URL
+    // view/coordinates or user/programmatic navigation has claimed the camera
+    // since layout. Any pan/zoom (humanViewportInteractionToken), preset,
+    // search or country navigation supersedes it.
+    const recenterAuthorityToken = this.state.map?.getViewportAuthorityToken() ?? 0;
+    const urlClaimedCamera = this.state.initialUrlState != null && (
+      this.state.initialUrlState.view !== undefined ||
+      (this.state.initialUrlState.lat !== undefined && this.state.initialUrlState.lon !== undefined)
+    );
     const mobileGeoCoords = await geoCoordsPromise;
-    if (mobileGeoCoords && this.state.map) {
+    if (this.state.isDestroyed) return;
+    if (
+      mobileGeoCoords &&
+      this.state.isMobile &&
+      !this.autoGeoRecenterApplied &&
+      !urlClaimedCamera &&
+      this.state.map &&
+      this.state.map.getViewportAuthorityToken() === recenterAuthorityToken
+    ) {
+      this.autoGeoRecenterApplied = true;
       this.state.map.setCenter(mobileGeoCoords.lat, mobileGeoCoords.lon, 6);
     }
 
@@ -2904,6 +2941,22 @@ export class App {
       panel_count: Object.keys(this.state.panels).length,
     });
     this.eventHandlers.setupPanelViewTracking();
+  }
+
+  /**
+   * Apply a late-arriving geolocation region without another network request
+   * solely for geolocation (#7778). Updates prediction prioritization from the
+   * kept candidate set using the same regional match rules; the failed-location
+   * path keeps the synchronous fallback usable without a map jump. Never
+   * late-recenters desktop. Guarded on isDestroyed so callbacks from a
+   * destroyed (re-initialized) App cannot move the new map or its panels.
+   */
+  private applyLateGeoRegion(region: string): void {
+    if (this.state.isDestroyed) return;
+    if (!region || region === 'global') return;
+    if (region === this.state.resolvedLocation) return;
+    this.state.resolvedLocation = region as AppContext['resolvedLocation'];
+    this.dataLoader.reprioritizeLateRegionPredictions(region);
   }
 
   private shouldDeferTierPreferenceReconciliation(): boolean {
@@ -3372,6 +3425,7 @@ export class App {
     this.latestSearchAdsb = [];
     this.latestSearchMilitary = [];
     this.latestSearchAdsbUpdatedAt = 0;
+    this.autoGeoRecenterApplied = false;
     this.resolveAppDestroyed();
     // Cancel in-flight App-owned waits before DOM teardown can mutate the
     // document and wake a waiter that still closes over this instance.
