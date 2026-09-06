@@ -355,7 +355,6 @@ const STACK_OVERFLOW = /Maximum call stack size exceeded|too much recursion/i;
  * abort that genuinely escaped a `.catch`.
  */
 const LEAKED_ABORT = /^(?:AbortError: )?The user aborted a request\.?$/;
-const LEAKED_DEADLINE = /^(?:TimeoutError: )?signal timed out$/;
 /**
  * A marketing document frame: `/`, `/pro`, or an absolute URL on any production,
  * preview, or custom host with one of those paths. Query strings, hashes, and a
@@ -493,19 +492,24 @@ export function marketingBeforeSend<T extends PolicyEvent>(event: T): T | null {
   // in `src/bootstrap/sentry-init.ts`.
   if (!hasFirstParty && LEAKED_ABORT.test(msg)) return null;
 
-  // The deadline sibling (WORLDMONITOR-11Y). `AbortSignal.timeout` rejects with
-  // this exact wording, and `createTimeoutSignal` reproduces it on engines
-  // lacking the native API. So unlike the bare-abort case above, this message
-  // CAN be ours. The census argument that justifies LEAKED_ABORT does not
-  // transfer here.
+  // No deadline sibling here, deliberately. `TimeoutError: signal timed out`
+  // (WORLDMONITOR-11Y) looks like an obvious companion to the abort rule above,
+  // and it is not: the `!hasFirstParty` gate cannot carry it.
   //
-  // What carries it instead is the frame gate alone. The browser fires these
-  // from internal infra at the timer boundary, so a leaked deadline arrives with
-  // zero frames; a first-party fetch that genuinely failed to handle its own
-  // deadline surfaces a `/pro/assets/*.js` frame and is kept. Dashboard-side the
-  // same class is dropped by the `!hasFirstParty` gate in
-  // `src/bootstrap/sentry-init.ts` (WORLDMONITOR-66/-62).
-  if (!hasFirstParty && LEAKED_DEADLINE.test(msg)) return null;
+  // `AbortSignal.timeout` builds its DOMException at the timer boundary, so the
+  // reason's stack holds only engine-internal frames and never the caller's.
+  // A marketing fetch that loses its own catch therefore reaches
+  // `unhandledrejection` with the SAME zero-frame shape as third-party noise;
+  // ownership adds no `/pro/assets/*.js` frame to distinguish them. Six call
+  // sites here carry a timeout signal, including `checkout.ts` and
+  // `checkout-transport.ts`, so suppressing the shape would blind a revenue
+  // path to silence one event. Same keep-visible reasoning as the zero-frame
+  // stack overflow in WORLDMONITOR-WK.
+  //
+  // The dashboard's gate in `src/bootstrap/sentry-init.ts` (WORLDMONITOR-66/-62)
+  // is not a precedent to copy: that bundle mints its own `signal timed out`
+  // DOMException in first-party code, which does carry caller frames.
+  // `tests/pro-sentry-filter-policy.test.mts` locks this absence in.
 
   // Safari-masked injected script. The observed event (WORLDMONITOR-110,
   // `TypeError: Attempting to change value of a readonly property.` on iOS
