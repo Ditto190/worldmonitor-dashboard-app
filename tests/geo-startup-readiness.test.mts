@@ -271,4 +271,26 @@ describe('geolocation off the readiness path (#7778)', () => {
     ]);
     assert.deepEqual(prediction.reprioritizeMarketsForRegion(markets, 'global', 15), markets);
   });
+
+  it('retained candidate pool promotes region matches hidden below the display slice', async () => {
+    const prediction = await loadPredictionService();
+    // 16 non-matching markets fill the display slice; the region match sits at
+    // position 17 of the 25-candidate pool — invisible to a re-rank of the
+    // truncated 15, promotable from the retained pool.
+    const pool = Array.from({ length: 16 }, (_, i) => ({ title: `Global market ${i}`, yesPrice: 50 }));
+    pool.push({ title: 'Germany coalition talks', yesPrice: 60, regions: ['eu'] });
+    for (let i = 0; i < 8; i++) pool.push({ title: `Global tail ${i}`, yesPrice: 50 });
+    assert.equal(pool.length, 25);
+
+    const displayed = pool.slice(0, 15);
+    assert.ok(!displayed.some((m) => m.regions?.includes('eu')));
+
+    const rerankedTruncated = prediction.reprioritizeMarketsForRegion(displayed, 'eu', 15);
+    assert.ok(!rerankedTruncated.some((m) => m.regions?.includes('eu')));
+
+    const rerankedPool = prediction.reprioritizeMarketsForRegion(
+      prediction.predictionCandidatePool(pool), 'eu', 15,
+    );
+    assert.equal(rerankedPool[0]?.title, 'Germany coalition talks');
+  });
 });

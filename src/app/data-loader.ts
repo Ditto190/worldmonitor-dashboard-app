@@ -46,7 +46,7 @@ import {
 import { INTEL_HOTSPOTS, CONFLICT_ZONES } from '@/config/geo';
 import { tokenizeForMatch, matchKeyword } from '@/utils/keyword-match';
 import { withTimeout } from '@/utils/with-timeout';
-import { fetchPredictions, reprioritizeMarketsForRegion as reprioritizePredictionMarketsForRegion } from '@/services/prediction';
+import { fetchPredictionCandidates, reprioritizeMarketsForRegion as reprioritizePredictionMarketsForRegion } from '@/services/prediction';
 import {
   fetchEarthquakes,
   fetchWeatherAlerts,
@@ -2980,15 +2980,21 @@ export class DataLoaderManager implements AppModule {
     }
   }
 
+  // Full 25-candidate pool behind the displayed 15. The late-region path
+  // re-ranks this pool so region matches at positions 16-25 can still promote
+  // exactly as if the region had resolved before the fetch (#7778).
+  private latestPredictionCandidates: import('@/services/prediction').PredictionMarket[] = [];
+
   async loadPredictions(): Promise<void> {
     // Capture the region at fetch start: a late region arrival re-ranks the
-    // kept candidate set (reprioritizeLateRegionPredictions) instead of letting
-    // this stale request overwrite the panel with the old ordering (#7778).
+    // kept candidate pool (reprioritizeLateRegionPredictions) instead of
+    // letting this stale request overwrite the panel with the old ordering.
+    const expectedRegion = this.ctx.resolvedLocation;
     const regionGeneration = this.predictionRegionGuard.begin();
     try {
-      const predictions = await fetchPredictions({ region: this.ctx.resolvedLocation });
+      const { candidates, displayed } = await fetchPredictionCandidates({ region: expectedRegion });
       if (this.ctx.isDestroyed || !this.predictionRegionGuard.isCurrent(regionGeneration)) return;
-      this.commitPredictionResults(predictions);
+      this.commitPredictionResults(displayed, candidates);
       void this.runCorrelationAnalysis();
     } catch (error) {
       if (this.ctx.isDestroyed || !this.predictionRegionGuard.isCurrent(regionGeneration)) return;
@@ -3000,23 +3006,34 @@ export class DataLoaderManager implements AppModule {
   }
 
   /**
-   * Re-rank the kept candidate set after a late region arrival without another
-   * network request solely for geolocation (#7778). Same regional match rules
-   * and normal relevance order as fetchPredictions; no eligibility, limit,
-   * market-selection or freshness-schedule changes. Bumping the generation
-   * makes an older in-flight loadPredictions() drop its stale commit.
+   * Re-rank the kept candidate pool after a late region arrival without
+   * another network request solely for geolocation (#7778). Same regional
+   * match rules and normal relevance order as fetchPredictions.
+   *
+   * In-flight safety: the generation is bumped only when the re-rank actually
+   * commits, so a cold-start load whose result has not arrived yet keeps its
+   * result instead of being discarded into an empty panel — the bump then
+   * makes that late commit apply the CURRENT region, not the stale one. No
+   * eligibility, limit, market-selection, or freshness-schedule changes.
    */
   reprioritizeLateRegionPredictions(region: string): void {
-    this.predictionRegionGuard.begin();
     if (this.ctx.isDestroyed || !region || region === 'global') return;
-    const kept = this.ctx.latestPredictions;
-    if (kept.length === 0) return;
-    const reranked = reprioritizePredictionMarketsForRegion(kept, region, 15);
-    this.commitPredictionResults(reranked);
+    const pool = this.latestPredictionCandidates.length > 0
+      ? this.latestPredictionCandidates
+      : this.ctx.latestPredictions;
+    if (pool.length === 0) return;
+    this.predictionRegionGuard.begin();
+    this.commitPredictionResults(reprioritizePredictionMarketsForRegion(pool, region, 15), pool);
   }
 
-  private commitPredictionResults(predictions: import('@/services/prediction').PredictionMarket[]): void {
+  private commitPredictionResults(
+    predictions: import('@/services/prediction').PredictionMarket[],
+    candidates?: import('@/services/prediction').PredictionMarket[],
+  ): void {
     this.ctx.latestPredictions = predictions;
+    if (candidates) this.latestPredictionCandidates = candidates;
+    this.ctx.latestPredictions = predictions;
+    if (candidates) this.latestPredictionCandidates = candidates;
     (this.ctx.panels['polymarket'] as PredictionPanel | undefined)?.renderPredictions(predictions);
 
     this.ctx.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });

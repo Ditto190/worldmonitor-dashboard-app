@@ -2747,28 +2747,26 @@ export class App {
     window.addEventListener('offline', this.handleConnectivityChange);
 
     // The single automatic precise recenter for this startup (mobile only,
-    // never desktop): only while the app is alive and no explicit URL
-    // view/coordinates or user/programmatic navigation has claimed the camera
-    // since layout. Any pan/zoom (humanViewportInteractionToken), preset,
-    // search or country navigation supersedes it.
+    // never desktop) runs as background work so a slow position lookup never
+    // blocks layout, event-handler, or data readiness (#7778). It fires only
+    // while the app is alive and no explicit URL view/coordinates or
+    // user/programmatic navigation has claimed the camera since layout: the
+    // authority snapshot below is taken after map construction, and any later
+    // pan/zoom (humanViewportInteractionToken), preset, search, or country
+    // navigation supersedes it.
     const recenterAuthorityToken = this.state.map?.getViewportAuthorityToken() ?? 0;
     const urlClaimedCamera = this.state.initialUrlState != null && (
       this.state.initialUrlState.view !== undefined ||
       (this.state.initialUrlState.lat !== undefined && this.state.initialUrlState.lon !== undefined)
     );
-    const mobileGeoCoords = await geoCoordsPromise;
-    if (this.state.isDestroyed) return;
-    if (
-      mobileGeoCoords &&
-      this.state.isMobile &&
-      !this.autoGeoRecenterApplied &&
-      !urlClaimedCamera &&
-      this.state.map &&
-      this.state.map.getViewportAuthorityToken() === recenterAuthorityToken
-    ) {
+    void geoCoordsPromise.then((mobileGeoCoords) => {
+      if (!mobileGeoCoords || this.state.isDestroyed) return;
+      if (!this.state.isMobile || this.autoGeoRecenterApplied || urlClaimedCamera) return;
+      const map = this.state.map;
+      if (!map || map.getViewportAuthorityToken() !== recenterAuthorityToken) return;
       this.autoGeoRecenterApplied = true;
-      this.state.map.setCenter(mobileGeoCoords.lat, mobileGeoCoords.lon, 6);
-    }
+      map.setCenter(mobileGeoCoords.lat, mobileGeoCoords.lon, 6);
+    });
 
     // Happy variant: pre-populate panels from persistent cache for instant render
     if (SITE_VARIANT === 'happy') {

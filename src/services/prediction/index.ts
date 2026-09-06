@@ -90,7 +90,10 @@ function protoToMarket(m: { title: string; yesPrice: number; volume: number; url
   };
 }
 
-export async function fetchPredictions(opts?: { region?: string }): Promise<PredictionMarket[]> {
+export async function fetchPredictionCandidates(opts?: { region?: string }): Promise<{
+  candidates: PredictionMarket[];
+  displayed: PredictionMarket[];
+}> {
   const markets = await breaker.execute(async () => {
     const hydrated = getHydratedData('predictions') as BootstrapPredictionData | undefined;
     if (hydrated?.fetchedAt && Date.now() - hydrated.fetchedAt < 40 * 60 * 1000) {
@@ -131,9 +134,26 @@ export async function fetchPredictions(opts?: { region?: string }): Promise<Pred
   }, []);
 
   if (opts?.region && opts.region !== 'global' && markets.length > 0) {
-    return reprioritizeMarketsForRegion(markets, opts.region, 15);
+    return {
+      candidates: predictionCandidatePool(markets),
+      displayed: reprioritizeMarketsForRegion(markets, opts.region, 15),
+    };
   }
-  return markets.slice(0, 15);
+  return { candidates: predictionCandidatePool(markets), displayed: markets.slice(0, 15) };
+}
+
+export async function fetchPredictions(opts?: { region?: string }): Promise<PredictionMarket[]> {
+  return (await fetchPredictionCandidates(opts)).displayed;
+}
+
+/**
+ * Full candidate pool for a late region arrival (#7778): the same 25-candidate
+ * relevance-ordered set fetchPredictions() ranks across, before the final
+ * 15-item display slice. Re-ranking this pool — not the truncated display
+ * slice — is what makes the late path identical to resolving first.
+ */
+export function predictionCandidatePool(markets: PredictionMarket[]): PredictionMarket[] {
+  return markets.slice(0, 25);
 }
 
 interface CountryMetadata {
