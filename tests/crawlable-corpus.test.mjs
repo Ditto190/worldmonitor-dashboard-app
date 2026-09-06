@@ -3588,6 +3588,20 @@ describe('crawlable corpus generator', () => {
       );
 
       const sourcesPage = read(outDir, 'sources/index.html');
+      const sourceNodes = jsonLdObjects(sourcesPage);
+      const providerList = sourceNodes.find((node) => node['@type'] === 'CollectionPage').mainEntity;
+      assert.equal(providerList.itemListOrder, 'https://schema.org/ItemListUnordered');
+      assert.deepEqual(providerList.itemListElement, corpusData.sourceCatalog.map((provider) => provider.displayName));
+      assert.equal(providerList.numberOfItems, providerList.itemListElement.length);
+      const catalog = sourceNodes.find((node) => node['@type'] === 'DataCatalog');
+      assert.equal(catalog.dataset.length, corpusData.crises.length + 1);
+      for (const dataset of catalog.dataset) {
+        assert.ok(dataset['@id'], `${dataset.name} must reuse its detail-page identity`);
+        const detailPath = new URL(dataset.url).pathname.slice(1) + 'index.html';
+        const details = jsonLdObjects(read(outDir, detailPath)).flatMap((node) => collectDatasets(node));
+        assert.ok(details.some((node) => node['@type'] === 'Dataset' && node['@id'] === dataset['@id']),
+          `${dataset['@id']} must identify a Dataset on the generated detail page`);
+      }
       assert.match(sourcesPage, /<h1>See every source behind World Monitor\.<\/h1>/);
       assert.match(sourcesPage, /<link rel="canonical" href="https:\/\/www\.worldmonitor\.app\/sources\/">/);
       assert.doesNotMatch(sourcesPage, /id="app"/, 'sources page must be raw static HTML, not the SPA shell');
@@ -4422,11 +4436,19 @@ describe('crawlable corpus generator', () => {
           ld.some((entry) => entry['@type'] === 'FAQPage'),
           page.slug + ' must emit FAQPage JSON-LD (#7610)',
         );
-        if (page.itemList) {
+        const categorySlugs = ['liveuamap-alternatives', 'best-geopolitical-risk-dashboards',
+          'mcp-servers-for-geopolitical-data', 'chokepoint-monitoring-tools', 'free-geopolitical-risk-dashboards'];
+        if (categorySlugs.includes(page.slug)) {
           const itemList = ld.find((entry) => entry['@type'] === 'ItemList');
-          assert.ok(itemList, page.slug + ' must emit ranked ItemList JSON-LD (#7610)');
-          assert.equal(itemList.numberOfItems, page.itemList.length);
-          assert.equal(itemList.itemListOrder, 'https://schema.org/ItemListOrderAscending');
+          assert.ok(itemList, page.slug + ' must emit ItemList JSON-LD (#7749)');
+          const expectedNames = page.itemList?.map((item) => item.name) ?? page.matrixRows.map(([name]) => name);
+          assert.equal(itemList.numberOfItems, expectedNames.length);
+          assert.deepEqual(itemList.itemListElement.map((item) => item.name), expectedNames);
+          assert.deepEqual(itemList.itemListElement.map((item) => item.position), expectedNames.map((_, i) => i + 1));
+          assert.equal(itemList.itemListOrder, page.itemList
+            ? 'https://schema.org/ItemListOrderAscending' : 'https://schema.org/ItemListUnordered');
+        } else {
+          assert.ok(!ld.some((entry) => entry['@type'] === 'ItemList'), 'head-to-head pages do not declare a category list');
         }
         assert.match(
           html,

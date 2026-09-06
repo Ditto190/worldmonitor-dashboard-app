@@ -7993,6 +7993,9 @@
         },
         {
           "path": "scripts/build-use-cases.mjs"
+        },
+        {
+          "path": "scripts/crawlable-sources-page.mjs"
         }
       ]
     },
