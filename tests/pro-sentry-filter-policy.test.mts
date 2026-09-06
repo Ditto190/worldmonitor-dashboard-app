@@ -1050,3 +1050,28 @@ describe('marketingBeforeSend — leaked fetch abort (WORLDMONITOR-11M)', () => 
     assert.equal(marketingBeforeSend(kept), kept);
   });
 });
+
+describe('marketingBeforeSend — leaked fetch deadline (WORLDMONITOR-11Y)', () => {
+  const TIMED_OUT = 'TimeoutError: signal timed out';
+
+  it('drops the zero-frame deadline rejection', () => {
+    assert.equal(marketingBeforeSend(event(TIMED_OUT)), null);
+    // Chrome reports it without the type prefix in `value` too.
+    assert.equal(marketingBeforeSend(event('signal timed out')), null);
+  });
+
+  it('keeps the same message when a marketing-bundle frame is present', () => {
+    const kept = event(TIMED_OUT, ['/pro/assets/main-Ab12Cd.js']);
+    assert.equal(marketingBeforeSend(kept), kept);
+  });
+
+  it('keeps the same message when a source-mapped frame is present', () => {
+    const kept = event(TIMED_OUT, ['src/services/teasers.ts']);
+    assert.equal(marketingBeforeSend(kept), kept);
+  });
+
+  it('keeps an unrelated timeout-flavoured message', () => {
+    const kept = event('Entitlement poll signal timed out after 8s');
+    assert.equal(marketingBeforeSend(kept), kept);
+  });
+});
