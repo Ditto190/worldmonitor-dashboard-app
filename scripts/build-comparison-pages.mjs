@@ -10,9 +10,13 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { CHOKEPOINT_REGISTRY } from '../src/config/chokepoint-registry.ts';
+import {
+  COMPARE_HUB_NARRATIVE,
+  COMPARISON_NARRATIVES,
+} from './comparison-page-narratives.mjs';
 
 /** Bump when hub or child copy changes so lastmod advances without touching every sibling. */
-export const COMPARISONS_CONTENT_VERSION = '2026-09-04';
+export const COMPARISONS_CONTENT_VERSION = '2026-09-05';
 
 /**
  * Universal comparison-matrix columns. Engines lift these cells verbatim, so
@@ -33,6 +37,9 @@ export const COMPARISON_MATRIX_COLUMNS = [
 ];
 
 export const COMPARE_HUB_PATH = '/compare/';
+export const COMPARE_HUB_TITLE = 'Compare World Monitor';
+export const COMPARE_HUB_DESCRIPTION =
+  'Compare World Monitor with Liveuamap, ACLED, GDELT, Dataminr, Recorded Future, and more: one master matrix, honest concessions, and FAQs.';
 export const WORLD_MONITOR_UPDATE_CADENCE = 'Source-dependent: live and minute-level feeds plus daily, weekly, and monthly datasets';
 export const MCP_UNVERIFIED = 'Unverified';
 export const WORLD_MONITOR_CHOKEPOINT_COUNT = CHOKEPOINT_REGISTRY.length;
@@ -56,7 +63,7 @@ export const COMPARISON_HUB_MATRIX_ROWS = [
   ['International SOS', 'Undisclosed (enterprise-negotiated)', '24/7 assistance centers', 'Medical and security assistance', 'Yes (enterprise)', 'Yes (enterprise)', MCP_UNVERIFIED, 'Proprietary', 'Global assistance network', 'Case archive', 'Assistance delivery: medical evacuation and response'],
 ];
 
-export const COMPARISON_PAGES = [
+const COMPARISON_PAGE_SEEDS = [
   {
     slug: 'liveuamap-alternatives',
     path: '/compare/liveuamap-alternatives/',
@@ -75,6 +82,7 @@ export const COMPARISON_PAGES = [
     ],
     competitors: ['Liveuamap', 'Deep State Map', 'ACLED', 'ConflictZone.io', 'ISW', 'UNOSAT', 'ICG CrisisWatch', 'ConflictRadar'],
     claim: 'Multi-domain fusion',
+    summary: 'Eleven-column matrix comparing World Monitor with Liveuamap, Deep State Map, ACLED, ConflictZone.io, ISW, UNOSAT and ICG CrisisWatch on price, latency, API access and licensing, with the cells each competitor wins.',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime AIS, aviation, markets, seismic, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Multi-domain situational awareness on one map'],
       ['Liveuamap', 'Free tier; API Pro $150/mo (200 req/day); Enterprise from $1,000/mo', 'Near-real-time conflict events', 'Conflict events only', 'No', 'Pro $150/mo (200 req/day); Enterprise from $1,000/mo', MCP_UNVERIFIED, 'Proprietary, ad-funded', 'Curated public conflict feeds', 'Rolling conflict-event archive', 'Fast conflict-event headlines on a map'],
@@ -116,6 +124,7 @@ export const COMPARISON_PAGES = [
     ],
     competitors: ['BlackRock', 'IISS', 'OrreryX', 'the-world-now.com', 'Statista', 'Earthian AI'],
     claim: 'Update latency at zero price',
+    summary: 'Real-time geopolitical risk dashboards ranked against BlackRock, IISS, OrreryX, the-world-now.com, Statista and Earthian AI on update latency, price and signup, with where the analyst products still win.',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Real-time monitoring at zero cost'],
       ['BlackRock GRD', 'Client-only', 'Monthly or quarterly analyst updates', 'Geopolitical risk themes', 'Yes (client)', 'No', MCP_UNVERIFIED, 'Proprietary', 'Analyst research', 'Archived client publications', 'Institutional asset allocation context'],
@@ -145,6 +154,7 @@ export const COMPARISON_PAGES = [
     h1: 'World Monitor vs Liveuamap',
     competitors: ['Liveuamap'],
     claim: 'Programmatic access',
+    summary: 'Head-to-head on published numbers: World Monitor API Starter at $99.99/mo for 1,000 requests/day against Liveuamap Pro at $150/mo for 200, plus the domains only one side tracks.',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime AIS, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Multi-domain awareness plus programmatic access'],
       ['Liveuamap', 'Free tier; API Pro $150/mo (200 req/day); Enterprise from $1,000/mo', 'Near-real-time conflict events', 'Conflict events', 'No', 'Yes (paid API)', MCP_UNVERIFIED, 'Proprietary, ad-funded', 'Curated public conflict feeds', 'Rolling conflict-event archive', 'Fast conflict-event headlines'],
@@ -167,6 +177,7 @@ export const COMPARISON_PAGES = [
     h1: 'World Monitor vs ACLED',
     competitors: ['ACLED', 'myACLED'],
     claim: 'Latency and open access',
+    summary: 'World Monitor and ACLED (myACLED) compared on access tiers, latency, API availability and licensing, and why World Monitor complements ACLED\'s coded-event research rather than replacing it.',
     heading: 'ACLED alternative',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Real-time multi-domain watch without registration'],
@@ -190,6 +201,7 @@ export const COMPARISON_PAGES = [
     h1: 'World Monitor vs GDELT Cloud',
     competitors: ['GDELT', 'war-dashboard-data', 'world-intel-mcp'],
     claim: 'Curation over firehose',
+    summary: 'Curated indices versus the GDELT firehose: World Monitor, GDELT Cloud, war-dashboard-data and world-intel-mcp compared on latency, archive depth, API and MCP access, and where raw GDELT still wins.',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Scored, curated signals ready to act on'],
       ['GDELT (DOC 2.0 REST free and keyless; BigQuery for bulk)', 'Free (keyless REST); BigQuery for bulk', '15-minute global batches', 'Global news event firehose', 'No for REST; Google account for BigQuery', 'Yes (DOC 2.0 REST free; BigQuery paid)', MCP_VERIFIED_COMMUNITY, 'Open dataset (GDELT)', 'Global news ingestion', 'Decades of event data', 'Raw large-scale event research'],
@@ -212,6 +224,7 @@ export const COMPARISON_PAGES = [
     h1: 'World Monitor vs Dataminr',
     competitors: ['Dataminr'],
     claim: 'Price at comparable alert latency',
+    summary: 'Published prices against enterprise-negotiated licensing: World Monitor and Dataminr compared on alert latency, data domains, API access and price transparency, with the cells Dataminr wins.',
     heading: 'Dataminr alternatives',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Real-time alerts at free or from $39.99/month (Pro)'],
@@ -235,6 +248,7 @@ export const COMPARISON_PAGES = [
     h1: 'World Monitor vs Recorded Future',
     competitors: ['Recorded Future', 'Flare', 'MISP'],
     claim: 'Public access and price transparency',
+    summary: 'World Monitor, Recorded Future, Flare and MISP compared on price transparency, public access, domains covered and open source, and when an enterprise threat-intelligence platform is the right call.',
     heading: 'Recorded Future alternatives',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Multi-domain awareness including cyber context'],
@@ -262,6 +276,7 @@ export const COMPARISON_PAGES = [
     h1: 'World Monitor vs Deep State Map',
     competitors: ['Deep State Map'],
     claim: 'Global multi-domain vs single-theatre',
+    summary: 'Global multi-domain coverage against a single-theatre map: World Monitor and Deep State Map compared on scope, update method, API access and archive, and why Deep State Map wins on Ukraine frontline detail.',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Global conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Global multi-domain watch'],
       ['Deep State Map', 'Free (ad-supported)', 'Manual analyst updates', 'Ukraine theatre', 'No', 'No', MCP_UNVERIFIED, 'Proprietary', 'Analyst-curated', 'Ukraine theatre archive', 'Ukraine frontline detail'],
@@ -284,6 +299,7 @@ export const COMPARISON_PAGES = [
     h1: 'MCP Servers for Geopolitical Data',
     competitors: ['world-intel-mcp', 'Satellite MCP', 'OSINT MCP', 'war-dashboard-data', 'GDELT Cloud MCP', 'Off-Nadir Delta', 'IMF PortWatch MCP'],
     claim: 'Hosted agent-native access',
+    summary: 'Hosted versus self-hosted MCP access to geopolitical data: World Monitor against world-intel-mcp, Satellite MCP, OSINT MCP, GDELT Cloud MCP and IMF PortWatch MCP on entitlements, quotas, OAuth and hosting burden.',
     heading: 'MCP servers for geopolitical data',
     matrixRows: [
       ['World Monitor (hosted)', 'Free dashboard; MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime AIS, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'Yes (hosted, entitlements + quotas + OAuth)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Hosted, governed multi-domain access for agents'],
@@ -316,6 +332,7 @@ export const COMPARISON_PAGES = [
     h1: 'Chokepoint Monitoring Tools',
     competitors: ['IMF PortWatch', 'MarineTraffic', 'Kpler', "Lloyd's List Intelligence", 'Windward', 'SENTINEL GIP', 'straits.live'],
     claim: 'Fused chokepoint awareness',
+    summary: 'Chokepoint monitoring tools compared: World Monitor against IMF PortWatch, MarineTraffic, Kpler, Lloyd\'s List Intelligence, Windward and straits.live on transit counts, fused context, price and API access.',
     heading: 'Chokepoint monitoring tools',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, `${WORLD_MONITOR_CHOKEPOINT_COUNT} chokepoints fused with conflict, aviation, market, and climate signal`, 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Fused chokepoint awareness across domains'],
@@ -348,6 +365,7 @@ export const COMPARISON_PAGES = [
     h1: 'Free Geopolitical Risk Dashboards',
     competitors: ['OrreryX', 'the-world-now.com', 'Sentinel (Axonia)', 'ConflictZone.io', 'BlackRock', 'Deep State Map', 'ICG CrisisWatch'],
     claim: 'Free without signup',
+    summary: 'Which geopolitical risk dashboards are free without signup: World Monitor against OrreryX, the-world-now.com, Sentinel, ConflictZone.io, BlackRock, Deep State Map and ICG CrisisWatch on gating, latency and domains.',
     heading: 'Free geopolitical risk dashboards',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Free multi-domain watch without signup'],
@@ -380,6 +398,7 @@ export const COMPARISON_PAGES = [
     h1: 'Travel Risk Intelligence vs Assistance',
     competitors: ['Crisis24', 'International SOS', 'Riskline', 'Everbridge', 'Samdesk', 'Factal'],
     claim: 'Awareness layer alongside response',
+    summary: 'Travel risk intelligence versus assistance: World Monitor as the always-on awareness layer next to Crisis24, International SOS, Riskline, Everbridge, Samdesk and Factal, which win on response and duty-of-care delivery.',
     heading: 'Travel risk intelligence vs assistance',
     matrixRows: [
       ['World Monitor', '$0 dashboard; API from $99.99/mo (1,000 req/day); MCP from $39.99/mo (Pro)', WORLD_MONITOR_UPDATE_CADENCE, 'Conflict, maritime, aviation, markets, cyber, climate; travel-aware country risk', 'No', 'From $99.99/mo (API Starter)', 'From $39.99/mo (Pro)', 'AGPL-3.0', '747 active providers, attributed public feeds', 'Live + rolling published snapshots', 'Always-on travel-aware intelligence layer'],
@@ -405,6 +424,85 @@ export const COMPARISON_PAGES = [
     ],
   },
 ];
+
+function applyComparisonNarrative(page) {
+  const narrative = COMPARISON_NARRATIVES[page.slug];
+  if (!narrative) {
+    throw new Error('Missing comparison narrative for ' + page.slug);
+  }
+  const faqs = [...page.faqs, ...(narrative.extraFaqs ?? [])];
+  if (faqs.length < 8 || faqs.length > 12) {
+    throw new Error(page.slug + ' FAQ count must be 8-12, got ' + faqs.length);
+  }
+  const faqNames = new Set();
+  for (const [question] of faqs) {
+    const key = String(question).trim().toLowerCase();
+    if (faqNames.has(key)) {
+      throw new Error(page.slug + ' duplicate FAQ question: ' + question);
+    }
+    faqNames.add(key);
+  }
+  const merged = { ...page, ...narrative, faqs };
+  delete merged.extraFaqs;
+  const whyBody = (merged.whyWeWinBody ?? []).join(' ').replace(/\s+/g, ' ').trim();
+  if (!whyBody) {
+    throw new Error(page.slug + ' is missing whyWeWinBody');
+  }
+  if (whyBody === merged.whyWeWin.replace(/\s+/g, ' ').trim()) {
+    throw new Error(page.slug + ' whyWeWinBody must not repeat whyWeWin');
+  }
+  if (merged.heading && !(merged.headingProse?.length || merged.competitorProfiles?.length)) {
+    throw new Error(page.slug + ' H2 "' + merged.heading + '" has no following prose');
+  }
+  if (!merged.evaluationHeading || !merged.evaluationProse?.length) {
+    throw new Error(page.slug + ' is missing the evaluation section');
+  }
+  if (!merged.switchHeading || !merged.switchProse?.length) {
+    throw new Error(page.slug + ' is missing the switch-trigger section');
+  }
+  if (!merged.methodologyProse?.length) {
+    throw new Error(page.slug + ' is missing methodology prose');
+  }
+  return merged;
+}
+
+export const COMPARISON_PAGES = COMPARISON_PAGE_SEEDS.map(applyComparisonNarrative);
+
+function renderParagraphs(paragraphs, escapeHtml) {
+  return (paragraphs ?? []).map((paragraph) => '      <p>' + escapeHtml(paragraph) + '</p>');
+}
+
+function renderHeadingSection(heading, paragraphs, escapeHtml, label) {
+  if (!heading) return [];
+  const body = renderParagraphs(paragraphs, escapeHtml);
+  if (body.length === 0) {
+    throw new Error((label || heading) + ' is missing following prose');
+  }
+  return ['      <h2>' + escapeHtml(heading) + '</h2>', ...body];
+}
+
+function renderKeywordSection(page, escapeHtml) {
+  const headingProse = page.headingProse ?? [];
+  const profiles = page.competitorProfiles ?? [];
+  const profileBlocks = profiles.flatMap((profile) => {
+    if (!profile.paragraphs?.length) {
+      throw new Error(page.slug + ' profile "' + profile.name + '" has no prose');
+    }
+    const tag = page.heading ? 'h3' : 'h2';
+    return [
+      '      <' + tag + '>' + escapeHtml(profile.name) + '</' + tag + '>',
+      ...renderParagraphs(profile.paragraphs, escapeHtml),
+    ];
+  });
+  if (page.heading) {
+    const inner = [...renderParagraphs(headingProse, escapeHtml), ...profileBlocks];
+    if (inner.length === 0) {
+      throw new Error(page.slug + ' H2 "' + page.heading + '" has no following content');
+    }
+    return ['      <h2>' + escapeHtml(page.heading) + '</h2>', ...inner];
+  }
+  return profileBlocks;
+}
 
 function renderMatrix(rows, escapeHtml) {
   for (const row of rows) {
@@ -503,9 +601,8 @@ function renderComparePage(page, { tpl, baseUrl, lastmod }) {
     '      <h1>' + escapeHtml(page.h1) + '</h1>',
     '      <p class="lede"><strong>Direct answer:</strong> ' + escapeHtml(page.whyWeWin) + '</p>',
     '',
-    ...(page.heading
-      ? ['      <h2>' + escapeHtml(page.heading) + '</h2>', '']
-      : []),
+    ...renderKeywordSection(page, escapeHtml),
+    '',
     '      <h2>Comparison matrix</h2>',
     renderMatrix(page.matrixRows, escapeHtml),
     '',
@@ -516,8 +613,36 @@ function renderComparePage(page, { tpl, baseUrl, lastmod }) {
       '        <li><strong>' + escapeHtml(name) + '</strong> wins on ' + escapeHtml(cells) + '.</li>'),
     '      </ul>',
     '',
+    ...renderHeadingSection(
+      page.evaluationHeading,
+      page.evaluationProse,
+      escapeHtml,
+      page.slug + ' evaluation',
+    ),
+    '',
+    ...renderHeadingSection(
+      page.switchHeading,
+      page.switchProse,
+      escapeHtml,
+      page.slug + ' switch',
+    ),
+    '',
+    ...renderHeadingSection(
+      page.usageHeading,
+      page.usageProse,
+      escapeHtml,
+      page.slug + ' usage',
+    ),
+    '',
     '      <h2>Why World Monitor wins on ' + escapeHtml(page.claim) + '</h2>',
-    '      <p>' + escapeHtml(page.whyWeWin) + '</p>',
+    ...renderParagraphs(page.whyWeWinBody, escapeHtml),
+    '',
+    ...renderHeadingSection(
+      'How these figures were checked',
+      page.methodologyProse,
+      escapeHtml,
+      page.slug + ' methodology',
+    ),
     '',
     '      <h2>Frequently asked questions</h2>',
     ...page.faqs.flatMap(([question, answer]) => [
@@ -552,11 +677,31 @@ function assertMetaDescription(description, label) {
   }
 }
 
+/**
+ * One `[title](url): description` entry per /compare/ route for llms.txt and
+ * llms-full.txt (#7746). Titles are the page h1 — the query the page answers,
+ * which is the string an engine matches — and descriptions are each page's
+ * hand-written `summary`, so the discovery index cannot drift from the pages.
+ */
+export function comparisonDiscoveryEntries(baseUrl) {
+  const hub = {
+    title: COMPARE_HUB_TITLE,
+    url: new URL(COMPARE_HUB_PATH, baseUrl).href,
+    description: COMPARE_HUB_DESCRIPTION,
+  };
+  const pages = COMPARISON_PAGES.map((page) => {
+    if (typeof page.summary !== 'string' || page.summary.trim() === '') {
+      throw new Error(page.slug + ' needs a summary for the llms.txt Comparisons section');
+    }
+    return { title: page.h1, url: new URL(page.path, baseUrl).href, description: page.summary };
+  });
+  return [hub, ...pages];
+}
+
 function renderCompareHub({ tpl, baseUrl, lastmod }) {
   const { escapeHtml, breadcrumbLd, pageDocument } = tpl;
-  const path = '/compare/';
-  const description =
-    'Compare World Monitor with Liveuamap, ACLED, GDELT, Dataminr, Recorded Future, and more: one master matrix, honest concessions, and FAQs.';
+  const path = COMPARE_HUB_PATH;
+  const description = COMPARE_HUB_DESCRIPTION;
   assertMetaDescription(description, 'compare hub');
   const cards = COMPARISON_PAGES
     .map((page) => '        <a class="card" href="' + escapeHtml(page.path) + '"><strong>' + escapeHtml(page.h1) + '</strong><br><span>' + escapeHtml(page.claim) + '</span></a>')
@@ -564,16 +709,38 @@ function renderCompareHub({ tpl, baseUrl, lastmod }) {
   const body = [
     '      <p class="eyebrow">Compare</p>',
     '      <h1>Compare World Monitor</h1>',
-    '      <p class="lede">Every comparison page uses the same matrix columns, states what each competitor wins, and answers the questions engines lift verbatim.</p>',
+    '      <p class="lede">' + escapeHtml(COMPARE_HUB_NARRATIVE.lede) + '</p>',
+    '',
+    ...renderHeadingSection(
+      COMPARE_HUB_NARRATIVE.howToRead.heading,
+      COMPARE_HUB_NARRATIVE.howToRead.paragraphs,
+      escapeHtml,
+      'hub how-to-read',
+    ),
     '',
     '      <h2>Master comparison matrix</h2>',
     renderMatrix(COMPARISON_HUB_MATRIX_ROWS, escapeHtml),
+    '',
+    ...renderHeadingSection(
+      COMPARE_HUB_NARRATIVE.concessions.heading,
+      COMPARE_HUB_NARRATIVE.concessions.paragraphs,
+      escapeHtml,
+      'hub concessions',
+    ),
+    '',
+    ...renderHeadingSection(
+      COMPARE_HUB_NARRATIVE.methodology.heading,
+      COMPARE_HUB_NARRATIVE.methodology.paragraphs,
+      escapeHtml,
+      'hub methodology',
+    ),
     '',
     '      <div class="grid">',
     cards,
     '      </div>',
     '      <h2>Editorial comparison</h2>',
     '      <p>The blog post <a href="/blog/posts/worldmonitor-vs-traditional-intelligence-tools/">World Monitor vs Bloomberg, Palantir, Dataminr, and Recorded Future</a> compares their capabilities and distinguishes published prices from enterprise-negotiated licensing.</p>',
+    ...renderParagraphs(COMPARE_HUB_NARRATIVE.editorial, escapeHtml),
     '      <p class="source">Prices and capabilities were checked at publication time and can change.</p>',
   ].join('\n');
   return pageDocument({
@@ -586,7 +753,7 @@ function renderCompareHub({ tpl, baseUrl, lastmod }) {
     jsonLd: {
       '@context': 'https://schema.org',
       '@type': 'CollectionPage',
-      name: 'Compare World Monitor',
+      name: COMPARE_HUB_TITLE,
       description,
       url: new URL(path, baseUrl).href,
       inLanguage: 'en-US',

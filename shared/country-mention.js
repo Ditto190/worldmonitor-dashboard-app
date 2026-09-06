@@ -67,6 +67,7 @@ const NAME_ALIASES = {
   NL: ['holland'],
   RU: ['russian federation'],
   SZ: ['swaziland'],
+  TC: ['turks and caicos'],
   TL: ['east timor', 'timor leste'],
   TR: ['turkey', 'turkiye'],
   US: ['usa', 'u s', 'united states of america'],
@@ -87,6 +88,7 @@ const NAME_EXCLUSIONS = {
   MX: ['new mexico'],
   NL: ['holland america'],
   SD: ['south sudan'],
+  TR: ['turks and caicos'],
   WS: ['american samoa'],
 };
 

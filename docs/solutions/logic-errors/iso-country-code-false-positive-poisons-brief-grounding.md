@@ -109,10 +109,10 @@ The three call sites now import it: the freeze at `scripts/freeze-crawlable-live
 // before
 const countryName = TIER1_COUNTRIES[req.countryCode.toUpperCase()] || req.countryCode;
 // after
-const countryName = TIER1_COUNTRIES[upperCode] || countryDisplayName(upperCode) || req.countryCode;
+const countryName = TIER1_COUNTRIES[countryCode] || displayNameForIso2(countryCode) || req.countryCode;
 ```
 
-`countryDisplayName` (`shared/country-mention.js:172`) returns `''` rather than an ICU echo or the "Unknown Region" sentinel, so the bare code survives only for a code ICU genuinely cannot name. Cached briefs generated under the old name and the old matcher are evicted by a cache-key bump from `v6` to `v7` on both the anonymous and premium key shapes (`server/worldmonitor/intelligence/v1/_country-brief-context.ts:64` and `:67`).
+The server retains `displayNameForIso2` from the merged PR #7759. The matcher uses `countryDisplayName` for English search terms and rejects ICU code echoes. Cached briefs generated under the old name and the old matcher are evicted by a cache-key bump from `v6` to `v7` on both the anonymous and premium key shapes (`server/worldmonitor/intelligence/v1/_country-brief-context.ts:64` and `:67`).
 
 ### A publisher floor, not a row count
 
@@ -149,14 +149,9 @@ The global homepage strip still reads `full` alone; only the per-country pool wi
 
 ### A guard on rendered output
 
-`assertCountryPagePresentation` (`scripts/build-crawlable-corpus.mjs:3586`, called at `:3570`) reads the rendered `<main>` with tags stripped and fails the build on a literal `**` or `__`, or on a heading ending in a bare two-letter token after "FOR":
+The corpus retains `formatCrawlableIntelBrief` and `assertCountryBriefPresentation` from merged PR #7759. The formatter replaces country headings with the page name. The guard rejects literal `**` and matches ISO headings regardless of case, while allowing names such as El Salvador.
 
-```js
-const BARE_CODE_HEADING_LEAK_RE = /\bFOR ([A-Z]{2})\s*:?$/;
-const HEADING_INITIALISM_ALLOWLIST = new Set(['UK', 'EU', 'UN']);
-```
-
-The end anchor is load-bearing. The first version of this guard was `/\bFOR [A-Z]{2}\b/`, which failed the build on "WHAT THIS MEANS FOR EL SALVADOR".
+The frozen-data normalizer also matches headings regardless of case, so `What this means for NO` becomes `WHAT THIS MEANS FOR NORWAY` in the dataset. The matcher excludes `Turks and Caicos` before matching Turkey's `Turks` demonym. Regression tests cover both cases.
 
 ## Why This Works
 

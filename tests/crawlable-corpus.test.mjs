@@ -20,8 +20,8 @@ import {
   buildChokepointHubRows,
   buildCorpus,
   buildMicrostateCoverageStory,
+  assertCountryBriefPresentation,
   assertCountryDevelopmentsRendered,
-  assertCountryPagePresentation,
   assertDevelopmentsCoverage,
   CHOKEPOINT_PAGE_CONTENT_VERSION,
   CHOKEPOINT_PAGE_LASTMOD_PATHS,
@@ -5084,7 +5084,11 @@ describe('live-pulse snapshot injection (#7533)', () => {
             'reference/changelog/index.html',
           ]],
           ['comparisons', [
-            laterDate(COMPARISONS_CONTENT_VERSION, gitFileLastmod(repoRoot, 'scripts/build-comparison-pages.mjs')),
+            laterDate(
+              COMPARISONS_CONTENT_VERSION,
+              gitFileLastmod(repoRoot, 'scripts/build-comparison-pages.mjs'),
+              gitFileLastmod(repoRoot, 'scripts/comparison-page-narratives.mjs'),
+            ),
             pageFor(manifest.sections.comparisons.index),
           ]],
         ]);
@@ -5187,8 +5191,8 @@ describe('live-pulse snapshot injection (#7533)', () => {
   // #7533-allowlist: 2026-08-08 x3 2026-08-09 x4 2026-08-10 x4 2026-08-11 x3 2026-08-12 x3 2026-08-13 x4 — sourcePageLastmod pure-function fixtures
   // #7533-allowlist: 2026-08-29 x5 — STORY_CAPTURED_AT synthetic story clock and static snapshot-path fixtures
   // #7533-allowlist: 2026-09-01 x4 — CORPUS_GENERATOR_CONTENT_VERSION and synthetic development fixtures
-  // #7533-allowlist: 2026-09-02 x11 — synthetic developments timestamps
-  // #7533-allowlist: 2026-09-03 x14 — genuinely static: research lastmod, DataCatalog render fixture, datasetObservationCoverage fixtures, synthetic thin-grounding developments capturedAt
+  // #7533-allowlist: 2026-09-02 x15 — synthetic developments timestamps
+  // #7533-allowlist: 2026-09-03 x14 — genuinely static: research lastmod, DataCatalog render fixture, datasetObservationCoverage fixtures
   it('rejects undocumented calendar-date literals in this file', () => {
     const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
     assert.ok(calendarDateAllowances(source).size >= 20, 'the #7533-allowlist comment must stay populated');
@@ -5280,70 +5284,14 @@ describe('country recent developments', () => {
     // Brief body as structure (section heading + paragraph, never a <br>
     // blob), generation line and grounding source count.
     assert.ok(html.includes('data-intel-brief'));
-    assert.ok(html.includes('<h4>SITUATION NOW</h4>'));
-    assert.ok(html.includes('<p>Convoys move under escort [1].</p>'));
-    assert.ok(!html.includes('<br>'), 'the brief is rendered as elements, not <br>-joined text');
+    assert.ok(html.includes('<h3>Situation now</h3>'));
+    assert.ok(html.includes('Convoys move under escort [1].'));
     assert.ok(html.includes('<time datetime="2026-09-02T12:00:00.000Z">'));
     assert.ok(html.includes('from 2 grounding sources'));
     // Timeline event with summary, domain and source link.
     assert.ok(html.includes('data-intel-timeline'));
     assert.ok(html.includes('Port call logged in SD'));
     assert.ok(html.includes('<a href="https://example.test/port-call">source</a>'));
-  });
-
-  it('renders the five-section brief as headings, lists and outlook rows', () => {
-    const html = renderCountryDevelopments({
-      countryCode: 'SD',
-      countryName: 'Sudan',
-      developments: {
-        ...DEVELOPMENTS,
-        brief: {
-          ...BRIEF,
-          text: [
-            'SITUATION NOW',
-            'Convoys move under escort [1].',
-            '',
-            'WHAT THIS MEANS FOR SD',
-            '• **Port Sudan**: closed to traffic [2].',
-            '- Red Sea lanes: rerouted.',
-            '',
-            'OUTLOOK',
-            'NEXT 24H: Talks resume.',
-            'NEXT 48H:  Ports  reopen.',
-            '',
-            'WATCH ITEMS',
-            'Convoy schedule · Port reopening',
-          ].join('\n'),
-        },
-      },
-    });
-    assert.ok(html.includes('<h4>SITUATION NOW</h4>'));
-    assert.ok(html.includes('<h4>WHAT THIS MEANS FOR SUDAN</h4>'), 'the ISO-code heading is repaired to the page country');
-    assert.ok(!html.includes('FOR SD'));
-    assert.ok(html.includes('<li>Port Sudan: closed to traffic [2].</li>'));
-    assert.ok(html.includes('<li>Red Sea lanes: rerouted.</li>'), 'dash bullets are bullets too');
-    assert.ok(html.includes('<p><strong>NEXT 24H:</strong> Talks resume.</p>'));
-    assert.ok(html.includes('<p><strong>NEXT 48H:</strong>  Ports  reopen.</p>'), 'outlook text keeps its spacing so the render guard anchor matches');
-    assert.ok(html.includes('<p>Convoy schedule · Port reopening</p>'));
-    assert.ok(!html.includes('**'), 'markdown emphasis never reaches the page');
-    assert.ok(!html.includes('<br>'));
-    // The render guard sees the repaired heading, not the raw one, and an
-    // outlook row that ends the brief anchors verbatim.
-    assertCountryDevelopmentsRendered({
-      pagePath: '/countries/sudan/',
-      html,
-      developments: { ...DEVELOPMENTS, brief: { ...BRIEF, text: 'SITUATION NOW\nConvoys move under escort [1].\n\nWHAT THIS MEANS FOR SD' } },
-      countryCode: 'SD',
-      countryName: 'Sudan',
-    });
-    assertCountryDevelopmentsRendered({
-      pagePath: '/countries/sudan/',
-      html,
-      developments: { ...DEVELOPMENTS, brief: { ...BRIEF, text: 'SITUATION NOW\nConvoys move under escort [1].\n\nOUTLOOK\nNEXT 48H:  Ports  reopen.' } },
-      countryCode: 'SD',
-      countryName: 'Sudan',
-    });
-    assertCountryPagePresentation({ pagePath: '/countries/sudan/', html: `<main>${html}</main>` });
   });
 
   it('drops a model preamble and never publishes it', () => {
@@ -5360,7 +5308,7 @@ describe('country recent developments', () => {
     });
     assert.ok(!html.includes('CONFIDENTIAL'));
     assert.ok(!html.includes('INTELLIGENCE BRIEF'));
-    assert.ok(html.includes('<h4>SITUATION NOW</h4>'));
+    assert.ok(html.includes('<h3>Situation now</h3>'));
     assert.ok(html.includes('<p>Energy inflection point [1].</p>'));
   });
 
@@ -5387,36 +5335,6 @@ describe('country recent developments', () => {
       countryCode: 'BT',
       countryName: 'Bhutan',
     });
-  });
-
-  it('fails the build on literal markdown or an ISO code in a heading', () => {
-    assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><h2>Recent developments in Norway</h2><p>ok</p></main>' });
-    assert.throws(
-      () => assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><p>• **NBIM**: sells</p></main>' }),
-      /renders literal markdown emphasis \(\*\*\)/,
-    );
-    assert.throws(
-      () => assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><p>__NBIM__ sells</p></main>' }),
-      /renders literal markdown emphasis \(__\)/,
-      'the guard is not pinned to the one marker the first audit happened to see',
-    );
-    // Markup attributes are not rendered text: a double underscore in an href is fine.
-    assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><a href="https://example.test/a__b">link</a></main>' });
-    assert.throws(
-      () => assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<main><h4>WHAT THIS MEANS FOR NO</h4></main>' }),
-      /leaks an ISO code into a heading: WHAT THIS MEANS FOR NO/,
-    );
-    assert.throws(
-      () => assertCountryPagePresentation({ pagePath: '/countries/spain/', html: '<main><h4>WHAT THIS MEANS FOR ES:</h4></main>' }),
-      /leaks an ISO code into a heading/,
-      'a trailing colon does not hide the bare code',
-    );
-    // A name whose first word is two letters is not a leak; neither is an
-    // English initialism the model legitimately writes.
-    assertCountryPagePresentation({ pagePath: '/countries/el-salvador/', html: '<main><h4>WHAT THIS MEANS FOR EL SALVADOR</h4></main>' });
-    assertCountryPagePresentation({ pagePath: '/countries/united-kingdom/', html: '<main><h4>WHAT THIS MEANS FOR UK</h4></main>' });
-    // Only <main> is judged: a `**` in a <script> payload is not page text.
-    assertCountryPagePresentation({ pagePath: '/countries/norway/', html: '<script>"**"</script><main><p>ok</p></main>' });
   });
 
   it('fails the build on a malformed committed brief instead of withholding it', async () => {
@@ -5462,6 +5380,107 @@ describe('country recent developments', () => {
       }
     }
     assert.ok(briefs > 0, 'the fixture snapshot carries publishable briefs');
+  });
+
+  it('rejects literal markdown emphasis and ISO brief-heading leaks (#7738)', () => {
+    assert.throws(
+      () => assertCountryBriefPresentation({
+        pagePath: '/countries/norway/',
+        html: '<main><h3>Country brief</h3><p>**NBIM** proposed a sale [1].</p></main>',
+      }),
+      /literal markdown emphasis/,
+    );
+    assert.throws(
+      () => assertCountryBriefPresentation({
+        pagePath: '/countries/norway/',
+        html: '<main><h3>WHAT THIS MEANS FOR NO</h3><p>Named entity impact [1].</p></main>',
+      }),
+      /heading leaks ISO code/,
+    );
+    assert.throws(
+      () => assertCountryBriefPresentation({
+        pagePath: '/countries/norway/',
+        html: '<main><h3>What this means for NO</h3><p>Named entity impact [1].</p></main>',
+      }),
+      /heading leaks ISO code/,
+    );
+    assert.throws(
+      () => assertCountryBriefPresentation({
+        pagePath: '/countries/norway/',
+        html: '<main><h3>Country brief</h3><p>WHAT THIS MEANS FOR NO<br>Named entity impact [1].</p></main>',
+      }),
+      /brief heading leaks an ISO-3166 alpha-2 code/,
+    );
+    assert.doesNotThrow(() => assertCountryBriefPresentation({
+      pagePath: '/countries/norway/',
+      html: '<main><h3>What this means for Norway</h3><p><strong>NBIM</strong> proposed a sale [1].</p></main>',
+    }));
+    assert.doesNotThrow(() => assertCountryBriefPresentation({
+      pagePath: '/countries/tools/',
+      html: '<main><h3>WATCH FOR AI</h3><p>Unrelated heading.</p></main>',
+    }));
+    assert.doesNotThrow(() => assertCountryBriefPresentation({
+      pagePath: '/countries/norway/',
+      html: '<main><p>Analysts asked what this means for us.</p><div data-intel-brief><h3>What this means for Norway</h3></div></main>',
+    }));
+  });
+
+  it('renders frozen intel briefs as HTML with country names, not markdown or ISO codes (#7738)', () => {
+    const html = renderCountryDevelopments({
+      countryName: 'Norway',
+      developments: {
+        headlines: [],
+        brief: {
+          text: [
+            'SITUATION NOW',
+            'Norway’s sovereign wealth fund proposed cutting U.S. Treasury holdings [1].',
+            '',
+            'WHAT THIS MEANS FOR NO',
+            '• **Norges Bank Investment Management (NBIM)**: Proposed slashing of U.S. Treasury holdings [1].',
+            '• **Russian ship seizure**: Sparks diplomatic retaliation from Moscow.',
+            '',
+            'KEY RISKS',
+            '• **Retaliatory Russian actions**: maritime restrictions.',
+            '',
+            'OUTLOOK',
+            'NEXT 24H: Officials respond.',
+            '',
+            'WATCH ITEMS',
+            'NBIM asset allocation announcement · Russian maritime declarations',
+          ].join('\n'),
+          model: 'test-model',
+          generatedAt: '2026-09-02T08:16:38.074Z',
+          sources: [HEADLINE, { ...HEADLINE, source: 'Reuters', url: 'https://example.test/second' }],
+        },
+        timeline: [],
+        briefSkipped: null,
+        capturedAt: '2026-09-02T08:16:38.074Z',
+      },
+    });
+    assertCountryBriefPresentation({ pagePath: '/countries/norway/', html });
+    assert.ok(!html.includes('**'), 'emphasis markers must not reach the page');
+    assert.ok(html.includes('Norges Bank Investment Management (NBIM)'));
+    assert.ok(html.includes('<h3>What this means for Norway</h3>'));
+    assert.ok(!/\bFOR [A-Z]{2}\b/.test(html.replace(/<[^>]+>/g, ' ')));
+    const combined = renderCountryDevelopments({
+      countryName: 'Norway',
+      developments: {
+        headlines: [],
+        brief: {
+          text: '### **WHAT THIS MEANS FOR NO**\nNamed infrastructure impact [1].',
+          model: 'test-model',
+          generatedAt: '2026-09-02T08:16:38.074Z',
+          sources: [HEADLINE, { ...HEADLINE, source: 'Reuters', url: 'https://example.test/second' }],
+        },
+        timeline: [],
+        briefSkipped: null,
+        capturedAt: '2026-09-02T08:16:38.074Z',
+      },
+    });
+    assertCountryBriefPresentation({ pagePath: '/countries/norway/', html: combined });
+    assert.ok(combined.includes('<h3>What this means for Norway</h3>'));
+    assert.ok(html.includes('<h3>Situation now</h3>'));
+    assert.ok(html.includes('Norway’s sovereign wealth fund proposed cutting U.S. Treasury holdings [1].'));
   });
 
   it('appends brief-only sources without duplicating headline URLs', () => {
@@ -5827,6 +5846,22 @@ describe('country recent developments', () => {
       'a country with no frozen developments renders no section');
     const plainWebPage = jsonLdObjects(plain).find((entry) => entry['@type'] === 'WebPage');
     assert.ok(!('dateModified' in plainWebPage), 'no items means no dateModified claim');
+  });
+
+  it('sweeps every frozen pulse brief for markdown and ISO heading leaks (#7738)', async () => {
+    const data = await loadCorpusData({ rootDir: repoRoot });
+    const names = new Map(data.countries.map((entry) => [entry.code, entry.name]));
+    let briefCount = 0;
+    for (const [code, row] of Object.entries(data.livePulse?.countries || {})) {
+      const developments = row?.developments;
+      if (!developments?.brief?.text) continue;
+      briefCount += 1;
+      const name = names.get(code);
+      assert.ok(name, `pulse country ${code} must resolve to a display name`);
+      const html = renderCountryDevelopments({ countryName: name, developments });
+      assertCountryBriefPresentation({ pagePath: `/countries/${code}/`, html });
+    }
+    assert.ok(briefCount >= 10, `expected frozen briefs to sweep, got ${briefCount}`);
   });
 });
 describe('GEO residue #7616 (U2b changelog lastmod)', () => {

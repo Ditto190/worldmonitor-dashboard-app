@@ -8,21 +8,12 @@
 // bare `node`.
 
 import { countPublisherFamilies } from '../shared/publisher-families.js';
-import {
-  BRIEF_SECTION_HEADERS,
-  isBriefBullet,
-  isBriefOutlookRow,
-  isBriefSectionHeader,
-  stripBriefBullet,
-} from '../shared/brief-format.js';
+const BRIEF_SECTION_HEADERS = ['SITUATION NOW', 'WHAT THIS MEANS FOR', 'KEY RISKS', 'OUTLOOK', 'WATCH ITEMS'];
 
-export {
-  BRIEF_SECTION_HEADERS,
-  isBriefBullet,
-  isBriefOutlookRow,
-  isBriefSectionHeader,
-  stripBriefBullet,
-};
+function isBriefSectionHeader(line) {
+  const upper = String(line || '').trim().toUpperCase();
+  return BRIEF_SECTION_HEADERS.some((header) => upper.startsWith(header));
+}
 
 // Briefs need grounding from at least this many DISTINCT PUBLISHERS before
 // the freeze requests one and before the corpus publishes one (#7748 item
@@ -48,7 +39,7 @@ export function hasBriefGrounding(rows) {
 // "WHAT THIS MEANS FOR NO" — the server interpolated the ISO code where the
 // name belongs (#7738). Repaired only when the code is this page's own code,
 // so a brief that genuinely discusses another country is left alone.
-const BARE_CODE_HEADING_RE = /^(WHAT THIS MEANS FOR)\s+([A-Z]{2})\s*:?$/;
+const BARE_CODE_HEADING_RE = /^(WHAT THIS MEANS FOR)\s+([A-Z]{2})\s*:?$/i;
 // Markdown the model emits and the corpus injects as text: bold/italic
 // marker pairs and ATX heading hashes. Kept as a list so the next marker is
 // one entry, not a new guard (the first round pinned `**` alone).
@@ -82,18 +73,10 @@ export function normalizeBriefText(text, { countryCode = '', countryName = '' } 
   const body = preambleIsTheatre ? lines.slice(firstHeader) : lines;
   const repaired = body.map((line) => {
     const match = line.trim().match(BARE_CODE_HEADING_RE);
-    if (!match || !code || !name || match[2] !== code) return line;
-    return `${match[1]} ${name.toUpperCase()}`;
+    if (!match || !code || !name || match[2].toUpperCase() !== code) return line;
+    return `${match[1].toUpperCase()} ${name.toUpperCase()}`;
   });
   return repaired.join('\n').trim();
-}
-
-/** Non-empty trimmed lines of a brief, the unit both the renderer and the render guard work in. */
-export function briefTextLines(text) {
-  return String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
 }
 
 // True when the frozen developments carry at least one dated, sourced item:

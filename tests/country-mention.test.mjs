@@ -101,6 +101,14 @@ describe('country mention matcher', () => {
     assert.equal(mentions('CG', 'Brazzaville and Kinshasa: the two Congos'), false, 'bare "Congo" belongs to neither');
   });
 
+  it('keeps Turks and Caicos reporting out of Turkey grounding', () => {
+    const title = 'Turks and Caicos announces budget';
+    assert.equal(mentions('TR', title), false);
+    assert.equal(mentions('TC', title), true);
+    assert.equal(mentions('TR', 'Turks and Caicos signs agreement with Turkey'), true);
+    assert.equal(mentions('TR', 'Turks vote in national election'), true);
+  });
+
   it('keeps Niger and Nigeria apart', () => {
     assert.equal(mentions('NE', 'Nigeria swears in new president'), false);
     assert.equal(mentions('NG', 'Niger coup leaders meet ECOWAS'), false);

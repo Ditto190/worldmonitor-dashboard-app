@@ -2,18 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
-  BRIEF_SECTION_HEADERS,
   briefGroundingPublisherCount,
-  briefTextLines,
   developmentsHasDatedItem,
   hasBriefGrounding,
-  isBriefBullet,
-  isBriefOutlookRow,
-  isBriefSectionHeader,
   MIN_BRIEF_GROUNDING_PUBLISHERS,
   normalizeBriefText,
   normalizeFrozenDevelopments,
-  stripBriefBullet,
 } from '../scripts/crawlable-developments.mjs';
 
 // Shapes taken from the 2026-09-04 frozen snapshot: 32 of 40 briefs carried
@@ -63,6 +57,15 @@ describe('normalizeBriefText', () => {
     assert.ok(text.endsWith('NBIM announcement · Russian maritime declarations'));
   });
 
+  it('repairs ISO headings regardless of letter case', () => {
+    for (const heading of ['What this means for NO', 'What this means for no', 'WHAT THIS MEANS FOR NO']) {
+      const text = normalizeBriefText(`${heading}\nNorway updates shipping rules [1][2].`, {
+        countryCode: 'NO', countryName: 'Norway',
+      });
+      assert.equal(text, 'WHAT THIS MEANS FOR NORWAY\nNorway updates shipping rules [1][2].');
+    }
+  });
+
   it('drops a model preamble before the first contract section', () => {
     const text = normalizeBriefText(GEORGIA_RAW, { countryCode: 'GE', countryName: 'Georgia' });
     assert.ok(text.startsWith('SITUATION NOW\n'), `preamble must go, got: ${text.slice(0, 40)}`);
@@ -84,7 +87,6 @@ describe('normalizeBriefText', () => {
   it('strips every markdown marker the model reaches for, not just the one first reported', () => {
     const text = normalizeBriefText('## SITUATION NOW\n__Port Sudan__ closed [1].\n* **Convoys** rerouted.', { countryCode: 'SD', countryName: 'Sudan' });
     assert.equal(text, 'SITUATION NOW\nPort Sudan closed [1].\n* Convoys rerouted.');
-    assert.equal(isBriefBullet('* Convoys rerouted.'), true, 'an asterisk bullet is still a bullet once the markers are gone');
   });
 
   it('repairs the heading only for the page country and only when a name is known', () => {
@@ -101,30 +103,6 @@ describe('normalizeBriefText', () => {
   it('is idempotent', () => {
     const once = normalizeBriefText(NORWAY_RAW, { countryCode: 'NO', countryName: 'Norway' });
     assert.equal(normalizeBriefText(once, { countryCode: 'NO', countryName: 'Norway' }), once);
-  });
-});
-
-describe('brief line classifiers', () => {
-  it('recognises the five contract headers case-insensitively', () => {
-    for (const header of BRIEF_SECTION_HEADERS) {
-      assert.equal(isBriefSectionHeader(header), true);
-      assert.equal(isBriefSectionHeader(`${header} NORWAY`), true);
-      assert.equal(isBriefSectionHeader(header.toLowerCase()), true);
-    }
-    assert.equal(isBriefSectionHeader('Convoys move under escort.'), false);
-    assert.equal(isBriefSectionHeader(''), false);
-  });
-
-  it('classifies bullets and outlook rows', () => {
-    assert.equal(isBriefBullet('• Port Sudan: closed'), true);
-    assert.equal(isBriefBullet('- Port Sudan: closed'), true);
-    assert.equal(isBriefBullet('Port Sudan - closed'), false);
-    assert.equal(isBriefBullet('-5% output'), false, 'a negative number is not a bullet');
-    assert.equal(stripBriefBullet('• Port Sudan: closed'), 'Port Sudan: closed');
-    assert.equal(stripBriefBullet('- Port Sudan: closed'), 'Port Sudan: closed');
-    assert.equal(isBriefOutlookRow('NEXT 24H: quiet'), true);
-    assert.equal(isBriefOutlookRow('NEXT week: quiet'), false);
-    assert.deepEqual(briefTextLines('a\n\n  b  \n'), ['a', 'b']);
   });
 });
 
