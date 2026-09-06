@@ -138,6 +138,10 @@ jobs:
             /^public\/home\.md$/ { count++; next }
             /\.md$/ { next }
             /^docs\// { next }
+            # A src-tauri node suite is run by sidecar and policed by
+            # tests/package-test-command-paths.test.mjs inside unit; both are
+            # gated on code, so the exclusion below must not swallow it (#7772).
+            /^src-tauri\/.*\.test\.(mjs|mts|cjs)$/ { count++; next }
             /^src-tauri\// && $0 !~ /^src-tauri\/sidecar\// && $0 !~ /^src-tauri\/.*\.json$/ { next }
             /^CHANGELOG\.md$/ { next }
             /^LICENSE$/ { next }

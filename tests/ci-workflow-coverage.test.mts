@@ -1336,6 +1336,12 @@ describe('CI workflow coverage', () => {
     );
     assert.match(markdownJob, /\n {6}- run: npm run lint:md\n/);
     assert.doesNotMatch(
+      markdownJob,
+      /continue-on-error/,
+      'a continue-on-error on the lint step would turn the required check green while lint is red',
+    );
+    assert.match(markdownJob, /\n {4}timeout-minutes: \d+\n/, 'a hung npm ci must not hold the deploy gate for the 360-minute default');
+    assert.doesNotMatch(
       workflowJobBlock(lintCodeWorkflow, 'biome'),
       /lint:md/,
       'biome used to lint markdown too, so a code+markdown PR linted it twice',
@@ -1358,8 +1364,10 @@ describe('CI workflow coverage', () => {
     assert.equal(parsed.jobs.changes.outputs?.markdown, '${{ steps.diff.outputs.markdown }}');
     assert.match(lintCodeWorkflow, /echo "markdown=true" >> "\$GITHUB_OUTPUT"/, 'pushes to main keep markdown coverage');
 
-    // The filter must fire for markdown and its config and stay quiet for a
-    // code-only PR, or the job either never runs or runs on every PR again.
+    // The filter must fire for every lint:md input (the markdown, its config,
+    // and package.json, which holds the command and pins markdownlint-cli2;
+    // the same set .husky/pre-push declares as LINT_MD_INPUTS) and stay quiet
+    // for a code-only PR, or the job either never runs or runs on every PR.
     const filter = lintCodeWorkflow.match(/^ +MARKDOWN=\$\([^\n]*\)\n +echo "markdown=[^\n]*$/m)?.[0];
     assert.ok(filter, 'lint-code.yml must derive markdown= from the PR file list');
     const markdownSays = (files: string[]): string => {
@@ -1370,9 +1378,18 @@ describe('CI workflow coverage', () => {
     };
     assert.equal(markdownSays(['docs/solutions/example.md']), 'markdown=true');
     assert.equal(markdownSays(['.markdownlint-cli2.jsonc']), 'markdown=true');
+    assert.equal(markdownSays(['.markdownlintignore']), 'markdown=true');
+    assert.equal(markdownSays(['package.json']), 'markdown=true', 'package.json defines lint:md');
+    assert.equal(markdownSays(['package-lock.json']), 'markdown=true', 'the lockfile pins markdownlint-cli2');
     assert.equal(markdownSays(['src/app/App.ts', 'README.md']), 'markdown=true');
     assert.equal(markdownSays(['src/app/App.ts', 'api/bootstrap.js']), 'markdown=false');
     assert.equal(markdownSays(['docs/adding-endpoints.mdx']), 'markdown=false', 'lint:md targets **/*.md only');
+    // The .md-only expectation above is only right while lint:md itself
+    // targets nothing else; widening the script must fail here until the
+    // filter is widened with it, or an mdx-only PR would skip a lint that
+    // covers it and the gate would read the skip as passing.
+    const lintMdGlobs = shellArgvTokens(packageScripts['lint:md'] ?? '').filter((token) => /^'[^!]/.test(token));
+    assert.deepEqual(lintMdGlobs, ["'**/*.md'"], 'the markdown change filter mirrors the positive lint:md glob; widen both together');
   });
 
   it('path-filters Test jobs on push to main instead of compiling everything', () => {

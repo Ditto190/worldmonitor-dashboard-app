@@ -102,6 +102,19 @@ test('unusable, incomplete and moved diff metadata runs every Test job', () => {
   }
 });
 
+test('src-tauri node suites are code, so unit and sidecar run on their own PRs', () => {
+  // tests/package-test-command-paths.test.mjs polices src-tauri/ suites from
+  // inside unit, and sidecar runs them; both are gated on `code`, which the
+  // src-tauri exclusion below would otherwise leave false (#7772).
+  for (const event of ['pull_request', 'push']) {
+    assert.equal(classify(['src-tauri/open-url-safety.test.mjs'], { event }).code, 'true', event);
+    assert.equal(classify([
+      { filename: 'src-tauri/open-url-policy.test.mjs', previous_filename: 'src-tauri/open-url-safety.test.mjs', status: 'renamed' },
+    ], { event }).code, 'true', `${event}: rename`);
+    assert.equal(classify(['src-tauri/src/main.rs'], { event }).code, 'false', `${event}: desktop-rust owns Rust sources`);
+  }
+});
+
 test('resilience-validation-smoke runs only for validation changes that skip unit', () => {
   const job = workflow.jobs['resilience-validation-smoke'];
   const runs = (outputs) => runInNewContext(job.if, { needs: { changes: { outputs } } }, { timeout: 1000 });

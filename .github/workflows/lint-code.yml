@@ -33,8 +33,10 @@ jobs:
             --paginate --jq '.[].filename')
           CODE=$(echo "$FILES" | grep -vcE '\.md$|^docs/|^src-tauri/|^CHANGELOG\.md$|^LICENSE$|\.github/workflows/(build-desktop|docker-publish)\.yml$' || echo 0)
           echo "code=$( [ "$CODE" -gt 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
-          # markdown job: only the lint:md inputs, so a code-only PR skips it.
-          MARKDOWN=$(printf '%s\n' "$FILES" | grep -cE '\.md$|^\.markdownlint-cli2\.jsonc$' || true)
+          # markdown job: only the lint:md inputs (the markdown, its config, and
+          # package.json, which holds the command and pins markdownlint-cli2), so
+          # a code-only PR skips it. Same set as LINT_MD_INPUTS in .husky/pre-push.
+          MARKDOWN=$(printf '%s\n' "$FILES" | grep -cE '\.md$|^\.markdownlint|^package(-lock)?\.json$' || true)
           echo "markdown=$( [ "$MARKDOWN" -gt 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
 
   biome:
@@ -68,6 +70,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.markdown == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
