@@ -172,6 +172,7 @@ import { fetchWebcamImage } from '@/services/webcams';
 import { setTrustedHtml, trustedHtml } from '@/utils/dom-utils';
 import { summarizeRenderTiming, formatRenderTiming } from '@/components/map/render-timing';
 import { DeferredHeavyCommit } from '@/components/map/deferred-layer-commit';
+import { ZoomHintGuard } from '@/components/map/zoom-hint-guard';
 import { dispatchWebcamLayerClick, resolveWebcamStreamUrl, type WebcamLeafLike } from '@/components/map/webcam-click';
 import {
   type BBox,
@@ -637,6 +638,10 @@ export class DeckGLMap {
   private tradeAnimationTime = 0;
   private tradeAnimationFrame: number | null = null;
   private tradeAnimationFrameCount = 0;
+  // Guards updateZoomHints() so the trade-animation's every-other-frame
+  // updateLayers() pass skips the toggle-DOM scan when zoom, layer flags,
+  // and row nodes are unchanged (#7776).
+  private readonly zoomHintGuard = new ZoomHintGuard();
   private tradeReducedMotionMedia: MediaQueryList | null = null;
   private storedChokepointData: GetChokepointStatusResponse | null = null;
   private highlightedRouteIds: Set<string> = new Set();
@@ -6214,12 +6219,19 @@ export class DeckGLMap {
   private updateZoomHints(): void {
     const toggleList = this.container.querySelector('.deckgl-layer-toggles .toggle-list');
     if (!toggleList) return;
+    // Mirror isLayerVisible()'s zoom source exactly so the guard key can
+    // never disagree with the visibility computation it protects.
+    const zoom = this.maplibreMap?.getZoom() || 2;
+    // Skip the full toggle-DOM scan when neither the visibility inputs
+    // (zoom, layer flags) nor the row nodes changed (#7776).
+    if (!this.zoomHintGuard.shouldScan({ zoom, layers: this.state.layers }, toggleList)) return;
     for (const [key, enabled] of Object.entries(this.state.layers)) {
       const toggle = toggleList.querySelector(`.layer-toggle[data-layer="${key}"]`) as HTMLElement | null;
       if (!toggle) continue;
       const zoomHidden = !!enabled && !this.isLayerVisible(key as keyof MapLayers);
       toggle.classList.toggle('zoom-hidden', zoomHidden);
     }
+    this.zoomHintGuard.markScanned({ zoom, layers: this.state.layers }, toggleList);
   }
 
   private markViewportMoving(target: { lat: number; lon: number; zoom: number }, fallbackMs: number): number {
