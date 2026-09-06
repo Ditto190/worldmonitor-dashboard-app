@@ -184,6 +184,22 @@ describe('zoom-hint guard (#7776)', () => {
     assert.equal(hintState(toggleList, 'datacenters'), false);
   });
 
+  it('invalidate() forces the next pass to rescan', () => {
+    const document = freshDom();
+    const toggleList = buildToggleList(document, HINT_KEYS);
+    const guard = new ZoomHintGuard();
+    const layers = makeLayers();
+    scanCount = 0;
+
+    guardedPass(guard, toggleList, layers, 2);
+    guardedPass(guard, toggleList, layers, 2);
+    assert.equal(scanCount, 1);
+    guard.invalidate();
+    assert.equal(guard.shouldScan({ zoom: 2, layers }, toggleList), true);
+    guardedPass(guard, toggleList, layers, 2);
+    assert.equal(scanCount, 2);
+  });
+
   it('wires the guard into DeckGLMap.updateZoomHints with the isLayerVisible zoom source', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const deckGlMapSrc = readFileSync(resolve(here, '../src/components/DeckGLMap.ts'), 'utf-8');
