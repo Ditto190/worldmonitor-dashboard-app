@@ -6,9 +6,14 @@
 // methodology, unique Why-we-win copy, and extra FAQs.
 
 import { CHOKEPOINT_REGISTRY } from '../src/config/chokepoint-registry.ts';
+import { computeStats } from './docs-stats.mjs';
 
 const CHECKED_ON = '5 September 2026';
 const CHOKEPOINT_COUNT = CHOKEPOINT_REGISTRY.length;
+// computeStats, not loadStatsForInventoryFacts: a drifted attribution
+// manifest must fail this copy rather than republish the last known-good
+// count (#6038 / #7744).
+const PROVIDER_COUNT = computeStats().sourceAttribution.providerCount.toLocaleString('en-US');
 
 function methodology(focus) {
   return [
@@ -335,7 +340,7 @@ export const COMPARISON_NARRATIVES = {
         name: 'war-dashboard-data and world-intel-mcp',
         paragraphs: [
           'These are GDELT-based dashboard and MCP projects. They wrap the firehose in a UI or a tool surface you host. They inherit GDELT\'s cadence (15-minute batches) and GDELT\'s volume. They are not a second event ontology; they are packaging.',
-          'Pick them when you want to self-host a GDELT surface. Pick World Monitor when you want 747 attributed providers curated into scored indices, including GDELT-derived signals, without running the wrapper yourself.',
+          `Pick them when you want to self-host a GDELT surface. Pick World Monitor when you want ${PROVIDER_COUNT} attributed providers curated into scored indices, including GDELT-derived signals, without running the wrapper yourself.`,
         ],
       },
     ],
@@ -366,7 +371,7 @@ export const COMPARISON_NARRATIVES = {
       ['Does World Monitor replace GDELT BigQuery?', 'No. If you need decades of raw events in BigQuery, stay on GDELT. World Monitor is the scored, current watch.'],
       ['How often does GDELT update?', '15-minute global batches. World Monitor cadence is source-dependent and includes live and minute-level feeds plus slower datasets.'],
       ['What is world-intel-mcp in this comparison?', 'A GDELT-based MCP project you self-host. It is packaging for the firehose, not a separate event universe.'],
-      ['Does World Monitor ingest GDELT?', 'It ingests GDELT-derived signals among 747 attributed providers. That is curation, not a full GDELT mirror.'],
+      ['Does World Monitor ingest GDELT?', `It ingests GDELT-derived signals among ${PROVIDER_COUNT} attributed providers. That is curation, not a full GDELT mirror.`],
       ['Should I use both?', 'Yes, when you need both the archive and the live scored layer. This page is written for that split.'],
     ],
   },
@@ -381,7 +386,7 @@ export const COMPARISON_NARRATIVES = {
         paragraphs: [
           'Dataminr (Pulse and related enterprise products) sells real-time alerting to newsrooms, corporations, and the public sector. The distinctive cells are proprietary social-data ingestion, sub-minute alerting SLAs, and enterprise integration support. Those cells are why it wins procurement in rooms that already have a security budget. The company does not publish list pricing; licenses are negotiated. This page will not invent a number to fill that silence.',
           'Who should pick Dataminr: organizations that need proprietary social firehoses, contractual SLAs, and a vendor that will sit in the incident channel. Who should pick something else: teams that cannot or will not sign an undisclosed enterprise contract, and teams that need a transparent public-source watch they can open without a salesperson. World Monitor is in the second set. It is not a Dataminr clone at a lower SLA.',
-          'The category error is treating "alerting" as one product. Dataminr alerts from a proprietary stack. World Monitor alerts from 747 attributed public providers. Speed and exclusivity versus transparency and price is the trade, and both sides of the trade are real.',
+          `The category error is treating "alerting" as one product. Dataminr alerts from a proprietary stack. World Monitor alerts from ${PROVIDER_COUNT} attributed public providers. Speed and exclusivity versus transparency and price is the trade, and both sides of the trade are real.`,
         ],
       },
     ],
@@ -400,7 +405,7 @@ export const COMPARISON_NARRATIVES = {
       'Dataminr pricing is marked undisclosed because no public list price was found on the check date. No third-party estimate is used. World Monitor prices are the public catalog only.',
     ),
     whyWeWinBody: [
-      'World Monitor publishes the prices Dataminr does not: $0 for the dashboard, Pro from $39.99/month with MCP, API Starter from $99.99/month. The data is 747 attributed public providers rather than a proprietary social stack. That is the transparency trade: you can verify the cells, and you give up Dataminr\'s exclusivity and SLA.',
+      `World Monitor publishes the prices Dataminr does not: $0 for the dashboard, Pro from $39.99/month with MCP, API Starter from $99.99/month. The data is ${PROVIDER_COUNT} attributed public providers rather than a proprietary social stack. That is the transparency trade: you can verify the cells, and you give up Dataminr's exclusivity and SLA.`,
       'Dataminr still wins proprietary ingestion, sub-minute SLAs, and enterprise integration. If those cells are the job, this page is not a reason to churn. If the job is a public-source watch you can buy from a catalog, it is.',
     ],
     extraFaqs: [
@@ -601,7 +606,7 @@ export const COMPARISON_NARRATIVES = {
     extraFaqs: [
       ['Is World Monitor MCP free?', 'No. MCP access starts at Pro, $39.99/month. The dashboard is free. Self-hosted packs are free as software and cost you operations.'],
       ['Why concede 171 tools?', 'Because it is true. Satellite MCP\'s tool-count breadth is a real win for satellite-only workflows. We do not compete on that row.'],
-      ['Does World Monitor wrap GDELT only?', 'No. It curates 747 attributed providers across domains. GDELT-derived signals are in the mix, not the whole mix.'],
+      ['Does World Monitor wrap GDELT only?', `No. It curates ${PROVIDER_COUNT} attributed providers across domains. GDELT-derived signals are in the mix, not the whole mix.`],
       ['Can I point Claude or another agent at World Monitor MCP?', 'Yes. That is what a published server-card and OAuth are for. Confirm current auth docs at /mcp; this page is the comparison, not the live protocol spec.'],
       ['Is a community GDELT MCP official?', 'No. It is labelled community implementation. GDELT Cloud is the upstream data; the MCP is plumbing.'],
       ['Should I self-host and also buy Pro?', 'You can. Self-host the satellite or OSINT packs you need, and use World Monitor MCP for the governed multi-domain session. The page is a comparison, not a monopoly.'],
