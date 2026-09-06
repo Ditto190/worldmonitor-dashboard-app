@@ -15,6 +15,7 @@ import {
   selectFrozenQuotes,
   timelineRecord,
   selectCountryHeadlines,
+  selectCountryIndexHeadlines,
 } from '../scripts/freeze-crawlable-live-pulse.mjs';
 
 describe('freeze crawlable live pulse API base routing', () => {
@@ -193,6 +194,13 @@ function countryPayload() {
     briefFailCodes = [],
     timelineStatus = 'ok',
     timelineSourceUrl = 'https://example.test/port-call',
+    // Per-country index (#7748): articles served for `country:<code>`
+    // queries, keyed by code; countries absent here serve an empty list.
+    // `countryIndexStatus` is 'ok' | 'seed-unavailable' | 'fail';
+    // `countryIndexFailCodes` 503 individual countries.
+    countryArticles = {},
+    countryIndexStatus = 'ok',
+    countryIndexFailCodes = [],
     onRequest = null,
     marketSymbols = ['^GSPC', '^IXIC', '^VIX'],
     commoditySymbols = ['CL=F', 'BZ=F', 'GC=F', 'HG=F', 'NG=F', 'EURUSD=X', 'USDJPY=X'],
@@ -234,6 +242,17 @@ function countryPayload() {
       if (href.includes('list-market-quotes')) return jsonResponse(quotePayload(marketSymbols));
       if (href.includes('list-commodity-quotes')) return jsonResponse(quotePayload(commoditySymbols));
       if (href.includes('list-crypto-quotes')) return jsonResponse(quotePayload(cryptoSymbols));
+      if (href.includes('search-gdelt-documents')) {
+        const query = new URL(href).searchParams.get('query') || '';
+        const code = query.replace(/^country:/, '');
+        if (countryIndexStatus === 'fail' || countryIndexFailCodes.includes(code)) {
+          return { ok: false, status: 503, text: async () => '{}' };
+        }
+        if (countryIndexStatus === 'seed-unavailable') {
+          return jsonResponse({ articles: [], query, error: 'seed-unavailable' });
+        }
+        return jsonResponse({ articles: countryArticles[code] || [], query, error: '' });
+      }
       if (href.includes('get-country-intel-brief')) {
         if (briefStatus === 'fail') return { ok: false, status: 503, text: async () => '{}' };
         const code = new URL(href).searchParams.get('country_code');
@@ -720,10 +739,12 @@ describe('freeze per-country developments capture', () => {
         publishedAt: Date.now() - 7200_000,
         importanceScore: 40,
       },
+      // A second Norway publisher on its own host: rows on one site are one
+      // publisher for the brief floor (#7748).
       {
         title: 'Oslo fund trims holdings',
         source: 'Nordic Wire',
-        link: 'https://example.test/norway-fund',
+        link: 'https://nordic.test/norway-fund',
         snippet: 'Norway wealth fund rebalances.',
         publishedAt: Date.now() - 7300_000,
         importanceScore: 35,
@@ -880,6 +901,168 @@ describe('freeze per-country developments capture', () => {
     );
   });
 
+  // GDELT compact seendate for an instant `ageMs` before now.
+  function seenDate(ageMs) {
+    const digits = new Date(Date.now() - ageMs).toISOString().replace(/\D/g, '').slice(0, 14);
+    return `${digits.slice(0, 8)}T${digits.slice(8)}Z`;
+  }
+
+  function indexArticle(title, url, source, ageMs = 3600_000) {
+    return { title, url, source, date: seenDate(ageMs), image: '', language: 'English', tone: 0.5 };
+  }
+
+  // What the search route serves for `country:PW`: two publishable rows and
+  // four the freeze must refuse even though the route served them.
+  function palauIndexArticles() {
+    return [
+      indexArticle('Palau signs maritime surveillance pact', 'https://islandtimes.example/palau-pact', 'islandtimes.example'),
+      indexArticle('Palauan senate passes budget', 'https://www.rnz.co.nz/news/pacific/palau-budget', 'rnz.co.nz', 7200_000),
+      // Indexed by a Koror location mention; the title never names Palau.
+      indexArticle('Pacific leaders gather for climate summit', 'https://example.test/roundup', 'example.test', 1000),
+      // Older than the timeline window: not "recent".
+      indexArticle('Palau marks independence day', 'https://islandtimes.example/old', 'islandtimes.example', 20 * 86_400_000),
+      // Not https.
+      indexArticle('Palau ferry schedule changes', 'http://islandtimes.example/ferry', 'islandtimes.example', 5000),
+      // An aggregator redirect carries no masthead a reader can verify.
+      indexArticle('Palau tourism rebounds', 'https://news.google.com/rss/articles/abc', 'news.google.com', 6000),
+    ];
+  }
+
+  it('tops up a country the digest never names from the per-country index and grounds its brief there', async () => {
+    const requested = [];
+    stubFetch({
+      digestItems: countryDigestItems(),
+      countryArticles: { PW: palauIndexArticles() },
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    const palau = snapshot.countries.PW.developments;
+    assert.deepEqual(palau.headlines.map((row) => row.url), [
+      'https://islandtimes.example/palau-pact',
+      'https://www.rnz.co.nz/news/pacific/palau-budget',
+    ], 'only title-named, recent, https, non-aggregator rows are frozen');
+    assert.equal(palau.headlines[0].source, 'islandtimes.example');
+    assert.match(palau.headlines[0].publishedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/, 'the compact seendate is frozen as an ISO instant');
+    assert.equal(palau.briefSkipped, null);
+    assert.ok(palau.brief, 'two publishers from the index ground a brief, and its cited URLs pass the provenance check');
+    assert.equal(palau.brief.sources.length, 2);
+    assert.ok(requested.some((href) => href.endsWith('/api/intelligence/v1/search-gdelt-documents?query=country%3APW&max_records=12')));
+    assert.equal(snapshot.coverage.developmentsCountryIndex.state, 'available');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.countryCount, 1);
+    assert.ok(snapshot.coverage.developmentsCountryIndex.requestCount >= snapshot.coverage.countryCount - 2,
+      'every country the digest leaves short is asked');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.errorCount, 0);
+    assert.equal(snapshot.coverage.headlineCountryCount, 3);
+  });
+
+  it('keeps digest rows ahead of index rows and never asks for a country already at the limit', async () => {
+    const requested = [];
+    const norwayFill = Array.from({ length: 3 }, (_, index) => ({
+      title: `Norway update ${index}`,
+      source: `Fjord Wire ${index}`,
+      link: `https://fjord${index}.test/${index}`,
+      snippet: '',
+      publishedAt: Date.now() - 1000 * (index + 1),
+      importanceScore: 60,
+    }));
+    stubFetch({
+      digestItems: [...countryDigestItems(), ...norwayFill],
+      countryArticles: {
+        SD: [
+          indexArticle('Sudan ceasefire monitors deploy', 'https://www.dabangasudan.org/monitors', 'dabangasudan.org'),
+          // The same URL the digest already froze: counted once.
+          indexArticle('Sudan aid convoy reaches Darfur amid talks', 'https://news.un.org/feed/view/en/story/2026/09/1168270', 'news.un.org'),
+        ],
+        NO: [indexArticle('Norway index row', 'https://nordic.test/index-row', 'nordic.test')],
+      },
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    const sudan = snapshot.countries.SD.developments.headlines;
+    assert.deepEqual(sudan.map((row) => row.source), ['UN News', 'Test Wire', 'dabangasudan.org']);
+    assert.equal(snapshot.countries.NO.developments.headlines.length, 5);
+    assert.ok(!requested.some((href) => href.includes('query=country%3ANO')), 'five digest rows leave no slot to fill');
+    assert.ok(!snapshot.countries.NO.developments.headlines.some((row) => row.url === 'https://nordic.test/index-row'));
+    assert.ok(requested.some((href) => href.includes('query=country%3ASD')));
+  });
+
+  it('records an unseeded index once and keeps freezing on digest rows', async () => {
+    const requested = [];
+    stubFetch({
+      digestItems: countryDigestItems(),
+      countryIndexStatus: 'seed-unavailable',
+      onRequest: (href) => requested.push(href),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(requested.filter((href) => href.includes('search-gdelt-documents')).length, 1,
+      'one seed-unavailable answer settles it for every country');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.state, 'unavailable');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.countryCount, 0);
+    const entries = snapshot.errors.developments.filter((entry) => entry.stage === 'country-index');
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].code, '*');
+    assert.ok(snapshot.countries.SD.developments.brief, 'digest-grounded briefs are unaffected');
+    assert.deepEqual(snapshot.countries.PW.developments.headlines, []);
+    assert.equal(snapshot.countries.PW.developments.briefSkipped, 'no-grounding');
+  });
+
+  it('records a per-country index failure, continues, and never names it as the brief gate cause', async () => {
+    stubFetch({
+      digestItems: countryDigestItems(),
+      countryArticles: { PW: palauIndexArticles() },
+      countryIndexFailCodes: ['BT'],
+    });
+    const { snapshot } = await runFreeze({ serviceKey: 'test-key' });
+    assert.equal(snapshot.coverage.developmentsCountryIndex.state, 'available');
+    assert.equal(snapshot.coverage.developmentsCountryIndex.errorCount, 1);
+    assert.ok(snapshot.errors.developments.some((entry) => (
+      entry.code === 'BT' && entry.stage === 'country-index' && /HTTP 503/.test(entry.message)
+    )));
+    assert.deepEqual(snapshot.countries.BT.developments.headlines, []);
+    assert.ok(snapshot.countries.PW.developments.brief, 'other countries still top up');
+    // A brief collapse is blamed on the brief, never on the top-up hiccup.
+    stubFetch({ digestItems: countryDigestItems(), countryIndexFailCodes: ['BT'], briefStatus: 'fail' });
+    await assert.rejects(
+      runFreeze({ serviceKey: 'test-key' }),
+      (error) => /captured briefs for 0 of 2/.test(error.message) && !/search-gdelt-documents/.test(error.message),
+    );
+  });
+
+  it('tops up the tail without a key, since the index route is anonymous', async () => {
+    const requested = [];
+    stubFetch({
+      digestItems: countryDigestItems(),
+      countryArticles: { PW: palauIndexArticles() },
+      onRequest: (href, options) => requested.push({ href, options }),
+    });
+    const { snapshot } = await runFreeze({ serviceKey: '' });
+    const palau = snapshot.countries.PW.developments;
+    assert.equal(palau.headlines.length, 2);
+    assert.equal(palau.brief, null);
+    assert.equal(palau.briefSkipped, 'no-service-key');
+    const call = requested.find(({ href }) => href.includes('query=country%3APW'));
+    assert.ok(call.options.headers?.Cookie?.startsWith('wm-session='), 'the minted session carries the index request');
+    assert.equal(snapshot.coverage.developmentsCountryCount, 3);
+  });
+
+  it('selects index rows by the same bar the page enforces', () => {
+    const now = Date.now();
+    const rows = selectCountryIndexHeadlines([
+      ...palauIndexArticles(),
+      indexArticle('Palau **breaking** news', 'https://islandtimes.example/bold', 'islandtimes.example'),
+      indexArticle('Palau signs maritime surveillance pact', 'https://islandtimes.example/palau-pact', 'islandtimes.example'),
+      { title: 'Palau undated', url: 'https://islandtimes.example/undated', source: 'islandtimes.example', date: '' },
+      { title: 'Palau unlabelled', url: 'https://islandtimes.example/unlabelled', source: '', date: seenDate(1000) },
+      { title: 'Palau from the future', url: 'https://islandtimes.example/future', source: 'islandtimes.example', date: seenDate(-3 * 3600_000) },
+    ], 'pw', now);
+    assert.deepEqual(rows.map((row) => row.url), [
+      'https://islandtimes.example/palau-pact',
+      'https://www.rnz.co.nz/news/pacific/palau-budget',
+    ]);
+    assert.deepEqual(selectCountryIndexHeadlines(null, 'PW'), []);
+    assert.deepEqual(selectCountryIndexHeadlines([], 'PWX'), []);
+  });
+
   it('pools every digest variant for country matching and de-duplicates by URL', async () => {
     const requested = [];
     const [sudanLead] = countryDigestItems();
@@ -901,7 +1084,7 @@ describe('freeze per-country developments capture', () => {
           {
             title: 'Thimphu bank raises rates',
             source: 'Himalayan Wire',
-            link: 'https://example.test/bhutan-rates',
+            link: 'https://himalayan.test/bhutan-rates',
             snippet: 'Bhutan tightens policy.',
             publishedAt: Date.now() - 3700_000,
             importanceScore: 55,
@@ -1105,7 +1288,7 @@ describe('freeze per-country developments capture', () => {
     const sudan = snapshot.countries.SD.developments;
     assert.equal(sudan.brief, null);
     assert.ok(snapshot.errors.developments.some((entry) => (
-      entry.code === 'SD' && entry.stage === 'brief' && entry.message.includes('not in the frozen digest')
+      entry.code === 'SD' && entry.stage === 'brief' && entry.message.includes('not in the frozen grounding pool')
     )));
   });
 
@@ -1148,7 +1331,7 @@ describe('freeze per-country developments capture', () => {
       {
         title: `${name} follow-up ${index}`,
         source: 'Second Wire',
-        link: `https://example.test/c-${index}-b`,
+        link: `https://second.test/c-${index}-b`,
         publishedAt: Date.now() - 3700_000,
         importanceScore: 45,
       },
