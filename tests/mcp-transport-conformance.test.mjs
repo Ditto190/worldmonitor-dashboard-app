@@ -887,6 +887,13 @@ describe('api/mcp.ts — /.well-known/mcp dual-role alias', () => {
 // HTTP body, which is why this check belongs at the transport layer rather than
 // beside the in-process handler cases in
 // tests/mcp-rate-limit-request-id.test.mjs.
+//
+// Keep this block LAST in the file. It is the only one that ENABLES the Upstash
+// env; the blocks above delete it, so `getMcpAnonRatelimit()` returns null up
+// there and never memoizes. auth.ts's limiter singletons are module-scoped and
+// the `?t=` cache-bust below does not reach them (api/mcp.ts re-exports
+// ./mcp/auth by a plain specifier), so a describe appended after this one that
+// also enables the env would silently inherit this block's stubbed limiter.
 describe('api/mcp.ts — rate-limit denials stay correlatable over the wire (#7818)', () => {
   const ORIGINAL_SLIDING_WINDOW = Ratelimit.slidingWindow;
   let server;
