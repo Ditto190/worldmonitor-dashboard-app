@@ -1365,8 +1365,8 @@ describe('CI workflow coverage', () => {
     assert.match(lintCodeWorkflow, /echo "markdown=true" >> "\$GITHUB_OUTPUT"/, 'pushes to main keep markdown coverage');
 
     // The filter must fire for every lint:md input (the markdown, its config,
-    // and package.json, which holds the command and pins markdownlint-cli2;
-    // the same set .husky/pre-push declares as LINT_MD_INPUTS) and stay quiet
+    // and package.json, which holds the command and pins markdownlint-cli2:
+    // LINT_MD_INPUTS from .husky/pre-push plus the lockfile) and stay quiet
     // for a code-only PR, or the job either never runs or runs on every PR.
     const filter = lintCodeWorkflow.match(/^ +MARKDOWN=\$\([^\n]*\)\n +echo "markdown=[^\n]*$/m)?.[0];
     assert.ok(filter, 'lint-code.yml must derive markdown= from the PR file list');

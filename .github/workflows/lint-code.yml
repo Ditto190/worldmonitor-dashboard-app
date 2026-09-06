@@ -35,7 +35,7 @@ jobs:
           echo "code=$( [ "$CODE" -gt 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
           # markdown job: only the lint:md inputs (the markdown, its config, and
           # package.json, which holds the command and pins markdownlint-cli2), so
-          # a code-only PR skips it. Same set as LINT_MD_INPUTS in .husky/pre-push.
+          # a code-only PR skips it. LINT_MD_INPUTS in .husky/pre-push plus the lockfile.
           MARKDOWN=$(printf '%s\n' "$FILES" | grep -cE '\.md$|^\.markdownlint|^package(-lock)?\.json$' || true)
           echo "markdown=$( [ "$MARKDOWN" -gt 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
 
