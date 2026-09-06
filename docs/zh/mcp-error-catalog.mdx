@@ -160,7 +160,7 @@ Content-Type: application/json
 
 按用户字符串里的 `<limit>` 是你自己套餐的突发额度，不是常量。Pro、Pro Business 与 API Starter 为 **60**，API Business 为 **300**，Enterprise 为 **1,000**；权益无法读取、以及在预检查之前被服务的元数据方法，都回退为 **60**。需要该数值时可从 message 中解析，或查阅[套餐与限制](/zh/mcp-overview#套餐与限制)。另外两个字符串确实固定为 60，因为旧版运营方密钥限流器和匿名发现限流器都不按套餐解析。
 
-每次每分钟拒绝都会原样回显你的 JSON-RPC `id` —— 字符串或数字，包括 `0` —— 因此它满足 MCP schema 的 `RequestId` 联合类型，你的客户端可以把待处理请求结算为限流错误，而不是让响应校验失败。唯一的例外是 `GET /mcp` 的 SSE 重放通道：它没有 JSON-RPC 请求体，也就没有 `id` 可回显，其拒绝仍保持 `"id": null`。
+每次每分钟拒绝都会原样回显你的 JSON-RPC `id` —— 字符串或数字，包括 `0` —— 因此它满足 MCP schema 的 `RequestId` 联合类型，你的客户端可以把待处理请求结算为限流错误，而不是让响应校验失败。有两种情况没有 `id` 可回显，其拒绝仍保持 `"id": null`：一是 `GET /mcp` 的 SSE 重放通道，它根本没有 JSON-RPC 请求体；二是**通知**（不带 `id` 发送的请求，例如 `notifications/initialized`）—— 被限流的通知会收到错误信封，而不是通常的无正文 `202`，并且按定义就没有 id 可关联。
 
 示例负载（按用户变体，API Business —— env_key 客户端得到相同信封形状，但使用 API-key 的 message 字符串）：
 

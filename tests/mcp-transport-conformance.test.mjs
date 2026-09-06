@@ -891,6 +891,7 @@ describe('api/mcp.ts — rate-limit denials stay correlatable over the wire (#78
   const ORIGINAL_SLIDING_WINDOW = Ratelimit.slidingWindow;
   let server;
   let denyLimiter;
+  let limiterKeys;
 
   beforeEach(async () => {
     process.env.MCP_INTERNAL_HMAC_SECRET = HMAC_SECRET;
@@ -898,10 +899,17 @@ describe('api/mcp.ts — rate-limit denials stay correlatable over the wire (#78
     process.env.UPSTASH_REDIS_REST_URL = 'https://stub.upstash.invalid';
     process.env.UPSTASH_REDIS_REST_TOKEN = 'stub-token';
     denyLimiter = false;
-    // Read at call time, not captured at construction time, so the memoized
-    // limiter singleton can serve both the allowed and the denied case.
+    limiterKeys = [];
+    // `denyLimiter` is read at CALL time, not captured at construction time.
+    // That matters because auth.ts memoizes its limiter singletons, so the
+    // instance built during the first test survives into the next one; a stub
+    // that closed over a value would freeze the first test's verdict for the
+    // whole describe. `limiterKeys` is what keeps the allowed case honest —
+    // without it, an unstubbed or unconfigured limiter would return null and
+    // the read would pass for the wrong reason.
     Ratelimit.slidingWindow = (tokens, window) => () => ({
-      async limit() {
+      async limit(_ctx, key) {
+        limiterKeys.push(key);
         return {
           success: !denyLimiter,
           limit: tokens,
@@ -945,6 +953,10 @@ describe('api/mcp.ts — rate-limit denials stay correlatable over the wire (#78
       code: -32029,
       label: 'over-the-wire anonymous denial',
     });
+    assert.ok(
+      limiterKeys.some((key) => key.startsWith('rl:mcp:anon:')),
+      'the real anonymous discovery limiter must be what rejected, not a stubbed-out no-op',
+    );
   });
 
   it('the same read succeeds and correlates once the window recovers', async () => {
@@ -962,5 +974,9 @@ describe('api/mcp.ts — rate-limit denials stay correlatable over the wire (#78
 
     assert.equal(res.status, 200);
     assertJsonRpcResult(await res.json(), { id: 9001, label: 'recovered anonymous read' });
+    assert.ok(
+      limiterKeys.some((key) => key.startsWith('rl:mcp:anon:')),
+      'the recovered read must still have been metered — otherwise this control proves nothing',
+    );
   });
 });

@@ -220,6 +220,25 @@ describe('#7818 — branches with no request id stay null', () => {
     assert.equal(body.error.code, -32029);
   });
 
+  it('a rate-limited notification has no id to echo and keeps null', async () => {
+    // `notifications/initialized` normally dispatches to a bodyless 202. The
+    // limiter sits upstream of dispatch, so a denied notification gets the
+    // error envelope instead — and a notification carries no id by definition,
+    // so `undefined ?? null` is the correct answer, not a lost id. This is the
+    // second documented `"id": null` case alongside the SSE replay channel.
+    deniedKeyPrefixes = [ANON_KEYS];
+    const res = await mcpHandler(anonPost({ jsonrpc: '2.0', method: 'notifications/initialized' }));
+    const body = await res.json();
+    assert.equal(body.id, null, 'a notification carries no id to correlate');
+    assert.equal(body.error.code, -32029);
+  });
+
+  it('an ALLOWED notification still dispatches to the bodyless 202', async () => {
+    const res = await mcpHandler(anonPost({ jsonrpc: '2.0', method: 'notifications/initialized' }));
+    assert.equal(res.status, 202, 'threading an id must not disturb the notification dispatch arm');
+    assert.equal(await res.text(), '');
+  });
+
   it('a malformed id is still rejected with -32600 and a null id', async () => {
     const res = await mcpHandler(anonPost({ jsonrpc: '2.0', id: { nested: true }, method: 'tools/list' }));
     const body = await res.json();
