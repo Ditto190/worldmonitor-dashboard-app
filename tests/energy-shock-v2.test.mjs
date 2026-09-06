@@ -427,6 +427,18 @@ describe('computeEnergyShockScenario response construction', () => {
     });
     assert.equal(zero.portwatchCoverage, true);
     assert.equal(zero.liveFlowRatio, 0, 'a real zero-flow ratio must remain distinct from missing data');
+
+    redis.set('energy:chokepoint-flows:v1', { hormuz_strait: { flowRatio: -0.5 } });
+    const clampedLow = await computeShock({
+      countryCode: 'US', chokepointId: 'hormuz_strait', disruptionPct: 42, fuelMode: 'oil',
+    });
+    assert.equal(clampedLow.liveFlowRatio, 0, 'negative ratios must clamp to zero');
+
+    redis.set('energy:chokepoint-flows:v1', { hormuz_strait: { flowRatio: 3 } });
+    const clampedHigh = await computeShock({
+      countryCode: 'US', chokepointId: 'hormuz_strait', disruptionPct: 43, fuelMode: 'oil',
+    });
+    assert.equal(clampedHigh.liveFlowRatio, 1.5, 'oversized ratios must clamp to 1.5');
   });
 
   it('derives IEA stock coverage from the production response path', async (t) => {
@@ -450,6 +462,12 @@ describe('computeEnergyShockScenario response construction', () => {
       countryCode: 'US', chokepointId: 'hormuz_strait', disruptionPct: 22, fuelMode: 'oil',
     });
     assert.equal(invalid.ieaStocksCoverage, false, 'negative cover days must not count as coverage');
+
+    redis.set('energy:iea-oil-stocks:v1:US', { daysOfCover: 90, netExporter: false, anomaly: true });
+    const anomalous = await computeShock({
+      countryCode: 'US', chokepointId: 'hormuz_strait', disruptionPct: 24, fuelMode: 'oil',
+    });
+    assert.equal(anomalous.ieaStocksCoverage, false, 'anomalous positive cover days must not count as coverage');
 
     redis.set('energy:iea-oil-stocks:v1:US', { daysOfCover: null, netExporter: true, anomaly: false });
     const exporter = await computeShock({
