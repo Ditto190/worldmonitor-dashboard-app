@@ -239,6 +239,20 @@ test.describe('DeckGL map harness', () => {
     expect(runtimeVariant).toBe(expectedVariant);
   });
 
+  test('renders the layer performance warning with human-readable copy', async ({ page }) => {
+    await waitForHarnessReady(page);
+
+    const warning = page.locator('.layer-warn-dialog');
+    await expect(warning).toBeVisible();
+    await expect(warning.locator('.layer-warn-text strong')).toHaveText('Performance notice');
+    await expect(warning.locator('.layer-warn-text p')).toHaveText(
+      'Enabling more than 13 layers may impact rendering performance and frame rate.',
+    );
+    await expect(warning.locator('.layer-warn-dismiss span')).toHaveText("Don't show this again");
+    await expect(warning.locator('.layer-warn-ok')).toHaveText('Got it');
+    await expect(warning).not.toContainText('undefined');
+  });
+
   test('boots without deck assertions or unhandled runtime errors', async ({
     page,
   }) => {

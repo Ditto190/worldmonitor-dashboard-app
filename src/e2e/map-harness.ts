@@ -49,6 +49,7 @@ import type { AirportDelayAlert } from '../services/aviation';
 import type { ClimateAnomaly } from '../services/climate';
 import type { Earthquake } from '../services/earthquakes';
 import type { DiseaseOutbreakItem } from '../services/disease-outbreaks';
+import { I18N_RESOURCES_LOADED_EVENT, initI18n, t } from '../services/i18n';
 import { setCachedFuelShortageRegistry } from '../shared/fuel-shortage-registry-store';
 import { setCachedPipelineRegistries } from '../shared/pipeline-registry-store';
 import { setCachedStorageFacilityRegistry } from '../shared/storage-facility-registry-store';
@@ -209,6 +210,14 @@ declare global {
   interface Window {
     __mapHarness?: MapHarness;
   }
+}
+
+const englishResourcesReady = new Promise<void>((resolve) => {
+  window.addEventListener(I18N_RESOURCES_LOADED_EVENT, () => resolve(), { once: true });
+});
+await initI18n();
+if (t('components.deckgl.layerWarningTitle').startsWith('components.')) {
+  await englishResourcesReady;
 }
 
 const app = document.getElementById('app');
