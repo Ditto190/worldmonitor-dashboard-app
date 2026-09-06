@@ -119,6 +119,44 @@ describe('brief grounding floor', () => {
     assert.equal(hasBriefGrounding([]), false);
     assert.equal(hasBriefGrounding(null), false);
   });
+
+  it('counts two rows on one site as one publisher whatever their labels say', () => {
+    // GDELT index rows (#7748) carry the publishing domain as their label,
+    // digest rows carry a feed label: "Guardian ME" and "theguardian.com"
+    // are one newsroom, and the floor must not clear on it twice.
+    const mixed = [
+      { source: 'Guardian ME', url: 'https://www.theguardian.com/world/2026/sep/03/a' },
+      { source: 'theguardian.com', url: 'https://www.theguardian.com/world/2026/sep/04/b' },
+    ];
+    assert.equal(briefGroundingPublisherCount(mixed), 1);
+    assert.equal(hasBriefGrounding(mixed), false);
+    // Editions on different hosts still fold through the family table.
+    assert.equal(briefGroundingPublisherCount([
+      { source: 'BBC World', url: 'https://www.bbc.co.uk/news/a' },
+      { source: 'BBC Africa', url: 'https://www.bbc.com/news/b' },
+    ]), 1);
+    // Two genuinely different sites are two publishers, including
+    // second-level country TLDs that a naive "last two labels" rule folds.
+    assert.equal(briefGroundingPublisherCount([
+      { source: 'rnz.co.nz', url: 'https://www.rnz.co.nz/news/pacific/1' },
+      { source: 'abc.net.au', url: 'https://www.abc.net.au/news/2' },
+    ]), 2);
+    assert.equal(briefGroundingPublisherCount([
+      { source: 'rnz.co.nz', url: 'https://www.rnz.co.nz/news/pacific/1' },
+      { source: 'stuff.co.nz', url: 'https://www.stuff.co.nz/world/2' },
+    ]), 2, 'rnz.co.nz and stuff.co.nz share a suffix, not a site');
+    // A row without a usable URL counts by label alone.
+    assert.equal(briefGroundingPublisherCount([
+      { source: 'UN News' },
+      { source: 'Test Wire', url: 'not a url' },
+    ]), 2);
+    // A shared host bridges two labels into one family transitively.
+    assert.equal(briefGroundingPublisherCount([
+      { source: 'Wire A', url: 'https://news.example/a' },
+      { source: 'Wire B', url: 'https://news.example/b' },
+      { source: 'Wire B', url: 'https://other.example/c' },
+    ]), 1);
+  });
 });
 
 describe('developmentsHasDatedItem', () => {
@@ -134,10 +172,11 @@ describe('developmentsHasDatedItem', () => {
 });
 
 describe('normalizeFrozenDevelopments', () => {
+  // Distinct hosts per wire: rows on one site are one publisher (#7748).
   const source = (n) => ({
     title: `Story ${n}`,
     source: `Wire ${n}`,
-    url: `https://example.test/${n}`,
+    url: `https://wire${n}.test/${n}`,
     publishedAt: '2026-09-02T10:00:00.000Z',
   });
   const brief = (sources) => ({
