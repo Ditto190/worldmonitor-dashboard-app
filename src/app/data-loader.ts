@@ -109,7 +109,7 @@ import {
 import { checkBatchForBreakingAlerts, dispatchOrefBreakingAlert } from '@/services/breaking-news-alerts';
 import { displayPubDateMs, effectivePubDateMs } from '@/services/feed-date';
 import { mlWorker } from '@/services/ml-worker';
-import { clusterNewsHybrid } from '@/services/clustering';
+import { clusterNewsHybrid, clusterNewsWithWorkerFallback } from '@/services/clustering';
 import { ingestProtests, ingestFlights, ingestVessels, ingestEarthquakes, detectGeoConvergence, geoConvergenceToSignal } from '@/services/geo-convergence';
 import { consumeServerAnomalies, fetchLiveAnomalies } from '@/services/temporal-baseline';
 import { fetchAllFires, flattenFires, computeRegionStats, toMapFires } from '@/services/wildfires';
@@ -2063,7 +2063,9 @@ export class DataLoaderManager implements AppModule {
     const startedAt = import.meta.env.VITE_E2E === '1' ? performance.now() : 0;
     const clusters = selectedPath === 'hybrid'
       ? await clusterNewsHybrid(items, { shouldContinue: () => this.isCurrentNewsLoad(generation) })
-      : await analysisWorker.clusterNews(items);
+      : await clusterNewsWithWorkerFallback(items, {
+        shouldContinue: () => this.isCurrentNewsLoad(generation),
+      });
     if (import.meta.env.VITE_E2E === '1') {
       performance.measure(`wm:news-clustering:path:${selectedPath}`, {
         start: startedAt,

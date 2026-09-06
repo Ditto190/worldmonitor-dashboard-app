@@ -329,6 +329,34 @@ describe('digest coverage follows the selected browser response', () => {
     expect(mocks.analyzeCorrelations).not.toHaveBeenCalled();
   });
 
+  it('keeps local clusters when the ML-off analysis worker is unavailable (#7782)', async () => {
+    const { loader, internal } = await makeLoader();
+    const ctx = (loader as unknown as { ctx: AppContext }).ctx;
+    ctx.allNews = [{
+      source: 'Reuters',
+      title: 'Fixture event',
+      link: 'https://fixture.test/event',
+      pubDate: new Date('2026-09-06T12:00:00.000Z'),
+      isAlert: false,
+    }];
+
+    const generation = internal.beginNewsLoad();
+    expect(internal.commitNewsFreshness(generation, false)).toBe(true);
+    mocks.clusterNews.mockResolvedValueOnce([]);
+    mocks.analyzeCorrelations.mockResolvedValueOnce([]);
+
+    await internal.runCorrelationAnalysis();
+
+    expect(ctx.latestClusters).toHaveLength(1);
+    expect(ctx.latestClusters[0]?.primaryTitle).toBe('Fixture event');
+    expect(ctx.clustersSettled).toBe(true);
+    expect(mocks.analyzeCorrelations).toHaveBeenCalledWith(
+      ctx.latestClusters,
+      ctx.latestPredictions,
+      ctx.latestMarkets,
+    );
+  });
+
   it.each(['retained', 'persisted'] as const)(
     'a %s fallback cannot run direct breaking-alert checks (#7084)',
     async (fallbackKind) => {

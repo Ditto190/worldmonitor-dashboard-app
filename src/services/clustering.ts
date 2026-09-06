@@ -36,23 +36,24 @@ function compareClustersForSemanticCandidate(a: ClusteredEvent, b: ClusteredEven
     || a.id.localeCompare(b.id);
 }
 
-async function clusterInitialStage(
+export async function clusterNewsWithWorkerFallback(
   items: NewsItem[],
-  shouldContinue: () => boolean,
-): Promise<ClusteredEvent[] | null> {
+  options: HybridClusteringOptions = {},
+): Promise<ClusteredEvent[]> {
+  const shouldContinue = options.shouldContinue ?? (() => true);
   if (items.length === 0) return [];
 
   try {
     const clusters = await analysisWorker.clusterNews(items);
-    if (!shouldContinue()) return null;
+    if (!shouldContinue()) return [];
     if (clusters.length > 0) return clusters;
     console.warn('[Clustering] Analysis worker returned no clusters, using local fallback');
   } catch (error) {
-    if (!shouldContinue()) return null;
+    if (!shouldContinue()) return [];
     console.warn('[Clustering] Analysis worker failed, using local fallback:', error);
   }
 
-  if (!shouldContinue()) return null;
+  if (!shouldContinue()) return [];
   return clusterNews(items);
 }
 
@@ -65,18 +66,18 @@ export async function clusterNewsHybrid(
 ): Promise<ClusteredEvent[]> {
   const shouldContinue = options.shouldContinue ?? (() => true);
   const coreStartedAt = import.meta.env.VITE_E2E === '1' ? performance.now() : 0;
-  const jaccardClusters = await clusterInitialStage(items, shouldContinue);
+  const jaccardClusters = await clusterNewsWithWorkerFallback(items, { shouldContinue });
   if (import.meta.env.VITE_E2E === '1') {
     performance.measure('wm:news-clustering:hybrid-core', {
       start: coreStartedAt,
       end: performance.now(),
       detail: {
         itemCount: items.length,
-        clusterCount: jaccardClusters?.length ?? 0,
+        clusterCount: jaccardClusters.length,
       },
     });
   }
-  if (jaccardClusters === null || !shouldContinue()) return [];
+  if (!shouldContinue()) return [];
 
   // Step 2: If ML unavailable or too few clusters, return Jaccard results
   if (!mlWorker.isAvailable || jaccardClusters.length < ML_THRESHOLDS.minClustersForML) {
