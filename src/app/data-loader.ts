@@ -2151,6 +2151,11 @@ export class DataLoaderManager implements AppModule {
     this.updateMonitorResults();
 
     try {
+      // Snapshot local-ML availability AT this generation's clustering choice
+      // (#7779): available takes the hybrid path, unavailable the analysis
+      // path. Worker readiness alone must never force a news reload or
+      // retroactively regroup committed first-load results — a later normal
+      // refresh re-reads availability and may use newly available ML.
       const clusters = mlWorker.isAvailable
         ? await clusterNewsHybrid(this.ctx.allNews)
         : await analysisWorker.clusterNews(this.ctx.allNews);
@@ -4458,6 +4463,9 @@ export class DataLoaderManager implements AppModule {
     const newsGeneration = this.committedNewsGeneration;
     const newsServedStale = this.committedNewsServedStale;
     try {
+      // Same per-generation availability snapshot as loadNews (#7779): pair
+      // the clustering path with THIS call's news body, never with a later
+      // worker-ready event that would regroup already-committed clusters.
       if (this.ctx.latestClusters.length === 0 && this.ctx.allNews.length > 0) {
         this.ctx.latestClusters = mlWorker.isAvailable
           ? await clusterNewsHybrid(this.ctx.allNews)
